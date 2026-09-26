@@ -22,8 +22,8 @@ Fork this to start working on your factory.
   - `spec/` — the current homework: `README.md`, `FACTORY.md` and the
     acceptance criteria in `features/`.
   - `ITERATION` — which homework you're on, and whether it's done.
-  - `stand-ins/` — fake agents for quick checks. They're fetched with
-    each homework and not committed.
+  - `stand-ins/` — fake agents: test fixtures for your factory's checks.
+    They're fetched and committed with each homework.
 - `tetris/.agents/skills/` — the skills: `fetch-iteration`, `coach-me`,
   `implement-it` and `implement-fast`.
 

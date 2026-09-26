@@ -19,7 +19,7 @@ Work from `tetris/.factory`. `ITERATION` there holds one line: the iteration and
    - writes `ITERATION` as `<iteration> WIP`
 
    If it says there is nothing left to fetch, tell the student they have finished every iteration and stop.
-4. Commit `spec/`, `../seeds/` and `ITERATION` with message `Adopt spec for iteration <iteration>`.
+4. Commit `spec/`, `stand-ins/`, `../seeds/` and `ITERATION` with message `Adopt spec for iteration <iteration>`.
 5. For any iteration after 001, show the student what changed: `git show --stat HEAD`, and the diff of `spec/FACTORY.md`. That diff is how the factory's spec evolves.
 6. Tell the student to say "coach me" to work through it step by step. Or, if they want you to build it, they can use `implement-it` (you build it, then demo it) or `implement-fast` (you just build it).
 
