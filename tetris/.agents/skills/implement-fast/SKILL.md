@@ -12,11 +12,10 @@ Follow this process exactly:
 2. Read the whole spec: `spec/README.md`, `spec/FACTORY.md`, `spec/features/` and the seeds in `../seeds/`.
 3. If the spec is unclear, stop and ask before editing.
 4. Check the working tree and avoid touching unrelated student changes.
-5. If this is iteration 001 and there is no factory implementation yet, ask what language and shape the student wants it in. For later iterations, keep using what they already chose.
-6. Implement only this iteration. Do not start any later iteration.
-7. Run whatever checks the factory has (tests, linters). If there are none, walk through the feature files' examples by hand, using the stand-ins in `stand-ins/` where they call for them.
-8. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-9. Commit the implementation and that change with message `Implement homework <iteration>`.
+5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite.
+6. Implement only this iteration, driven by the suite, leaving out the `@real-agent` examples. Do not start any later iteration. Until the suite passes: take the first example that fails or has undefined steps, define its missing steps (true to their words, reusing what exists), then make the smallest factory change that makes it pass.
+7. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+8. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
 
 Rules:
 
@@ -25,4 +24,4 @@ Rules:
 - Do not commit unrelated existing changes.
 - Keep the implementation scoped to the spec.
 - Keep the factory minimal. It never contains an agent of its own, stand-in or otherwise.
-- If checks fail and you cannot fix them within the spec, stop and report the failure.
+- If the suite fails and you cannot fix it within the spec, stop and report the failure.

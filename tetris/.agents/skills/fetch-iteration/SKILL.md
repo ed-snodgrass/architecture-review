@@ -8,9 +8,10 @@ Work from `tetris/.factory`. `ITERATION` there holds one line: the iteration and
 
 1. Read `ITERATION`.
    - Missing or `Done`: go to step 2.
-   - `WIP`: the current iteration is still in progress. It is ready when its checks pass. Run whatever checks the factory has (tests, linters).
-     - If they pass, write `ITERATION` as `<iteration> Done` and go to step 2.
-     - If they fail, or there are none, say so and ask the student whether to fetch the next iteration anyway. If they say no, stop. If they say yes, go to step 2 without marking the iteration done.
+   - `WIP`: the current iteration is still in progress. It is ready when its test suite passes: the feature files in `spec/features/`, run by the factory's Gherkin runner, leaving out the `@real-agent` examples. `AGENTS.md` says how to run it; if it doesn't, work it out from the project.
+     - If the suite passes, write `ITERATION` as `<iteration> Done` and go to step 2.
+     - If it fails, say how many examples fail or have undefined steps, and ask the student whether to fetch the next iteration anyway. If they say no, stop. If they say yes, go to step 2 without marking the iteration done.
+     - If there is no suite yet, say so, suggest the set-up-factory skill, and ask whether to fetch anyway.
 2. Check the working tree. If there are uncommitted changes in `spec/` or to `ITERATION` that you didn't just make, stop and ask.
 3. Run `../.agents/skills/fetch-iteration/fetch.sh`. It downloads the course, then:
    - replaces `spec/README.md`, `spec/FACTORY.md` and `spec/features/` with the next iteration's, leaving anything else in `spec/` alone
@@ -21,7 +22,8 @@ Work from `tetris/.factory`. `ITERATION` there holds one line: the iteration and
    If it says there is nothing left to fetch, tell the student they have finished every iteration and stop.
 4. Commit `spec/`, `stand-ins/`, `../seeds/` and `ITERATION` with message `Adopt spec for iteration <iteration>`.
 5. For any iteration after 001, show the student what changed: `git show --stat HEAD`, and the diff of `spec/FACTORY.md`. That diff is how the factory's spec evolves.
-6. Tell the student to say "coach me" to work through it step by step. Or, if they want you to build it, they can use `implement-it` (you build it, then demo it) or `implement-fast` (you just build it).
+6. If there is a suite, run it, leaving out the `@real-agent` examples, and show which examples now fail or have undefined steps. That is the work for this iteration: steps keep their words between iterations unless their meaning changed.
+7. Tell the student to say "coach me" to work through it step by step. Or, if they want you to build it, they can use `implement-it` (you build it, then demo it) or `implement-fast` (you just build it).
 
 ## Rules
 

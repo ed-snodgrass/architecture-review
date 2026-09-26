@@ -10,8 +10,11 @@ Fork this to start working on your factory.
 3. Say "fetch iteration". It downloads the first homework from the
    [course](https://github.com/lean-software-production/tutorial) into
    `spec/`.
-4. Say "coach me" to work through it step by step. When you've finished,
-   say "fetch iteration" again for the next one.
+4. Say "coach me" to work through it step by step. The first time, it
+   helps you pick a language and set up a Gherkin runner: the feature
+   files in each homework are your factory's test suite, and you build
+   until it passes. When you've finished, say "fetch iteration" again
+   for the next one.
 
 ## Where things live
 
@@ -20,12 +23,12 @@ Fork this to start working on your factory.
   arrives with the first homework.
 - `tetris/.factory/` — your factory. You build it here.
   - `spec/` — the current homework: `README.md`, `FACTORY.md` and the
-    acceptance criteria in `features/`.
+    acceptance criteria in `features/`, which are also your tests.
   - `ITERATION` — which homework you're on, and whether it's done.
   - `stand-ins/` — fake agents: test fixtures for your factory's checks.
     They're fetched and committed with each homework.
-- `tetris/.agents/skills/` — the skills: `fetch-iteration`, `coach-me`,
-  `implement-it` and `implement-fast`.
+- `tetris/.agents/skills/` — the skills: `fetch-iteration`,
+  `set-up-factory`, `coach-me`, `implement-it` and `implement-fast`.
 
 ## Codespaces and Dev Containers
 

@@ -11,10 +11,11 @@ The student is building a "factory" — a small program that turns a seed into a
 You work from `tetris/.factory`. All paths below are relative to it.
 
 - **The factory** — the student's code, in this folder.
-- `spec/` — the iteration they're working on, fetched from the course: `README.md`, `FACTORY.md` and `features/`.
+- `spec/` — the iteration they're working on, fetched from the course: `README.md`, `FACTORY.md` and `features/`. The feature files are also the factory's test suite.
 - `ITERATION` — their progress: one line, the iteration and its status, e.g. `001 WIP`.
 - `../seeds/` — the seeds the factory builds from.
-- `stand-ins/` — stand-in agents for quick, repeatable checks.
+- `stand-ins/` — stand-in agents, which the tests use in place of a real agent.
+- **The step definitions** — the student's, in their factory project. They tie the feature files to the factory.
 - **The codebase** — `..`, the `tetris/` folder. The factory builds the game there. You don't.
 
 ## Coaching
@@ -31,29 +32,32 @@ Follow this process exactly:
    Together they are the whole spec, not just what's new.
 3. If the spec is unclear, stop and ask before editing.
 4. Check the working tree and avoid touching unrelated student changes.
-5. If this is iteration 001 and there is no factory implementation yet, ask the student what language and shape they want to build it in (a script, a long-running process, whatever). There is no prescribed stack. For later iterations, keep using what they already chose.
-6. Introduce the iteration with a very concise overview:
+5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite; if it doesn't, work it out from the project.
+6. Run the suite, leaving out the `@real-agent` examples. Note which examples fail and which steps are undefined: that is this iteration's work.
+7. Introduce the iteration with a very concise overview:
    - Goal: the behaviour to add, in plain language (from the README and `FACTORY.md`, not the Gherkin).
-   - Steps: the small changes needed to get there.
+   - Where the suite stands: how many examples pass, fail, or have undefined steps.
    - Show the README's example CLI commands and expected outputs, then ask the student what questions they have.
    - Mention that if they'd rather you build the whole iteration, they can use `implement-it` (you build it, then demo it) or `implement-fast` (you just build it).
-7. Show the first small implementation change.
+8. Pick the next example to work on: the first one, in feature-file order, that fails or has undefined steps. Prefer one that needs no other example to pass first.
+9. Show the next small change for that example. There are two kinds, and they alternate:
+   - **Step definitions.** If the example has undefined steps, the change is to define them, so the example runs and fails for the right reason. Keep each definition true to the step's words, and reuse the ones the student already has.
+   - **The factory.** If the example fails, the change is the smallest one to the factory that makes it pass.
+
+   For either kind:
    - Start with what the step will achieve, then explain how to do it.
    - Reference the current code by file and line number, and quote the relevant nearby code, e.g. "In `path/to/file.ts` around line 37, you should see this...".
    - Be specific about the intent and why we're making the change, and show the new code.
-8. Ask whether the student wants to make the change or wants you to make it.
-9. If the student chooses to make it, stop and wait for them to say they made the change.
-10. If the student asks you to make it, edit only the files needed for that step.
-11. Inspect the relevant files or diff to confirm whether the change is correct.
-12. If the change is not correct, explain the smallest correction and ask again whether the student wants to make it or wants you to make it.
-13. Repeat steps 7-12 until the behaviour in `spec/features/` is true of the student's factory.
-14. Run whatever checks the student's implementation has (tests, linters). If there are none yet, walk through the feature files' examples by hand against manual runs of the factory.
-    - Use the stand-in agents in `stand-ins/` for the examples that call for them, and for quick checks.
-    - Examples that build real software need a real agent.
-15. If checks fail because implementation changes are needed, coach the student through the fixes one small change at a time, always offering to make each change yourself.
-16. Finish by pointing at what's still missing. Read the closing lines of `spec/README.md` for what the next homework builds on, and make clear that any remaining rough edges are expected at this point.
-17. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-18. Commit the implementation and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
+10. Ask whether the student wants to make the change or wants you to make it.
+11. If the student chooses to make it, stop and wait for them to say they made the change.
+12. If the student asks you to make it, edit only the files needed for that step.
+13. Run the example. After new step definitions, it should fail for the reason the next factory change will fix. After a factory change, it should pass, and the examples that passed before should still pass.
+14. If the result is not what the step aimed for, explain the smallest correction and ask again whether the student wants to make it or wants you to make it.
+15. Repeat steps 8-14 until the whole suite passes, leaving out the `@real-agent` examples.
+16. Offer the `@real-agent` examples as something to try by hand, with `pi`, using the README's example commands. They are optional.
+17. Finish by pointing at what's still missing. Read the closing lines of `spec/README.md` for what the next homework builds on, and make clear that any remaining rough edges are expected at this point.
+18. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+19. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
 
 ## Rules
 
@@ -75,4 +79,5 @@ Follow this process exactly:
 - For each implementation step, first say what the step will achieve, then say how to do it.
 - When describing a code change, always refer to the current code by file and line number and quote the relevant nearby code.
 - At each implementation step, ask whether the student wants to make the change or wants you to make it.
-- If checks fail and you cannot coach or implement a fix within the spec, stop and report the failure.
+- The suite is the check. Don't test by hand what an example already covers.
+- If the suite fails and you cannot coach or implement a fix within the spec, stop and report the failure.

@@ -17,20 +17,23 @@ Follow this process exactly:
 5. Check the current branch.
 6. If the current branch is `main`, offer to create and switch to a dated solution branch named `solution/YYYY-MM-DD` before editing. If that branch already exists, suggest `solution/YYYY-MM-DD-2`, then `solution/YYYY-MM-DD-3`, and so on.
 7. If the student says yes, create and switch to the branch. If they say no, continue on the current branch.
-8. If this is iteration 001 and there is no factory implementation yet, ask what language and shape the student wants it in. For later iterations, keep using what they already chose.
-9. Implement only this iteration. Do not start any later iteration.
-10. Run whatever checks the factory has (tests, linters). If there are none, walk through the feature files' examples by hand against manual runs of the factory. Use the stand-ins in `stand-ins/` for the examples that call for them.
-11. If checks fail and you cannot fix them within the spec, stop and report the failure.
-12. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-13. Commit the implementation and that change with message `Implement homework <iteration>`.
-14. Report back with:
+8. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite.
+9. Implement only this iteration, driven by the suite, leaving out the `@real-agent` examples. Do not start any later iteration. Until the suite passes, repeat:
+   - Run the suite and take the first example that fails or has undefined steps.
+   - If it has undefined steps, define them, true to their words, reusing the step definitions that exist. Run it: it should fail for the reason the factory change will fix.
+   - Make the smallest factory change that makes it pass, without breaking the examples that passed before.
+10. If the suite fails and you cannot fix it within the spec, stop and report the failure.
+11. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+12. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
+13. Report back with:
     - the iteration number and title
     - the goal in plain language, from `spec/README.md` and `spec/FACTORY.md`
-    - a short summary of what changed
-    - the README's example CLI commands, as something the student can try
+    - a short summary of what changed, in the factory and in the step definitions
+    - the suite passing, as the student can run it
+    - the README's example CLI commands, and the `@real-agent` examples, as things the student can try by hand with `pi`
     - what's still missing, from the closing lines of `spec/README.md`
-15. Ask: "Ready for me to implement the next iteration?"
-16. Stop and wait for the student's answer. If they say yes, repeat from step 1. If they say no, stop.
+14. Ask: "Ready for me to implement the next iteration?"
+15. Stop and wait for the student's answer. If they say yes, repeat from step 1. If they say no, stop.
 
 Rules:
 
