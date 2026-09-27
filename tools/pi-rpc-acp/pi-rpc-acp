@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+// pi-rpc-acp: runs pi as an ACP agent (https://agentclientprotocol.com), by
+// bridging ACP on stdio to pi's RPC mode (`pi --mode rpc`). It needs nothing
+// but Node, and pi on the PATH. Arguments are passed on to pi, so
+// `pi-rpc-acp --model sonnet` runs `pi --mode rpc --no-session --model sonnet`.
+//
+// What the factory needs from a machine, from homework 6 on:
+//   - what it generates, as agent_message_chunk updates
+//   - the files it reads, as tool calls whose locations name them
+//   - what it spent, as usage on the session/prompt response
+//     (inputTokens, outputTokens, …: ACP's draft end-of-turn usage, which
+//     the Claude Code and Codex adapters also send)
+//   - _session/steering, as those adapters accept it, passed to pi's steer
+//   - session/cancel, passed to pi's abort
+//
+// Not yet: the MCP servers a client names in session/new. pi has no MCP of
+// its own, so homework 8's run_command tool does not reach pi through this
+// bridge.
+
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import path from 'node:path';
+
+const piArgs = process.argv.slice(2);
+const sessions = new Map();
+let nextSession = 1;
+
+const send = (msg) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
+const update = (sessionId, u) => send({ method: 'session/update', params: { sessionId, update: u } });
+
+function startPi(sessionId, cwd) {
+  const pi = spawn('pi', ['--mode', 'rpc', '--no-session', ...piArgs], { cwd, stdio: ['pipe', 'pipe', 'inherit'] });
+  const session = { sessionId, cwd, pi, turn: null, nextId: 1 };
+  pi.on('error', (e) => { if (session.turn) session.turn.fail(`could not run pi: ${e.message}`); });
+  pi.on('close', () => { if (session.turn) session.turn.fail('pi stopped'); });
+  createInterface({ input: pi.stdout }).on('line', (line) => {
+    let e;
+    try { e = JSON.parse(line); } catch { return; }
+    onPiEvent(session, e);
+  });
+  return session;
+}
+const toPi = (session, cmd) => session.pi.stdin.write(JSON.stringify({ id: String(session.nextId++), ...cmd }) + '\n');
+
+const KINDS = { read: 'read', bash: 'execute', edit: 'edit', write: 'edit', grep: 'search', find: 'search', ls: 'read' };
+
+function onPiEvent(session, e) {
+  const { sessionId, turn } = session;
+  if (!turn) return;
+  if (e.type === 'response' && e.success === false) return turn.fail(e.error ?? 'pi refused the prompt');
+  if (e.type === 'message_update' && e.assistantMessageEvent?.type === 'text_delta') {
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: e.assistantMessageEvent.delta } });
+  } else if (e.type === 'tool_execution_start') {
+    const args = e.args ?? {};
+    const file = args.path ? path.resolve(session.cwd, args.path) : null;
+    update(sessionId, {
+      sessionUpdate: 'tool_call',
+      toolCallId: e.toolCallId,
+      title: args.command ?? (file ? `${e.toolName} ${file}` : e.toolName),
+      kind: KINDS[e.toolName] ?? 'other',
+      status: 'in_progress',
+      rawInput: args,
+      ...(file ? { locations: [{ path: file }] } : {}),
+    });
+  } else if (e.type === 'tool_execution_end') {
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: e.toolCallId, status: e.isError ? 'failed' : 'completed' });
+  } else if (e.type === 'turn_end' && e.message?.role === 'assistant' && e.message.usage) {
+    const u = e.message.usage;
+    turn.usage.inputTokens += u.input ?? 0;
+    turn.usage.outputTokens += u.output ?? 0;
+    turn.usage.cachedReadTokens += u.cacheRead ?? 0;
+    turn.usage.cachedWriteTokens += u.cacheWrite ?? 0;
+  } else if (e.type === 'agent_end') {
+    turn.done();
+  }
+}
+
+function prompt(id, { sessionId, prompt: blocks }) {
+  const session = sessions.get(sessionId);
+  if (!session) return send({ id, error: { code: -32602, message: `no session ${sessionId}` } });
+  const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+  const usage = { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0, cachedWriteTokens: 0 };
+  session.turn = {
+    usage,
+    cancelled: false,
+    done() {
+      session.turn = null;
+      usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cachedReadTokens + usage.cachedWriteTokens;
+      send({ id, result: { stopReason: this.cancelled ? 'cancelled' : 'end_turn', usage } });
+    },
+    fail(message) { session.turn = null; send({ id, error: { code: -32603, message } }); },
+  };
+  toPi(session, { type: 'prompt', message: text });
+}
+
+createInterface({ input: process.stdin }).on('line', (line) => {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return; }
+  const { id, method, params } = msg;
+  if (method === 'initialize') {
+    send({ id, result: { protocolVersion: 1, agentCapabilities: { promptCapabilities: {} }, agentInfo: { name: 'pi-rpc-acp', version: '1' }, authMethods: [] } });
+  } else if (method === 'session/new') {
+    const sessionId = `pi-${nextSession++}`;
+    sessions.set(sessionId, startPi(sessionId, params.cwd));
+    send({ id, result: { sessionId } });
+  } else if (method === 'session/prompt') {
+    prompt(id, params);
+  } else if (method === '_session/steering') {
+    const session = sessions.get(params.sessionId);
+    if (!session?.turn) return send({ id, result: { outcome: 'promptRequired', reason: 'noRunningTurn' } });
+    const text = (params.prompt ?? []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+    toPi(session, { type: 'steer', message: text });
+    send({ id, result: { outcome: 'injected' } });
+  } else if (method === 'session/cancel') {
+    const session = sessions.get(params.sessionId);
+    if (session?.turn) { session.turn.cancelled = true; toPi(session, { type: 'abort' }); }
+  } else if (id !== undefined) {
+    send({ id, error: { code: -32601, message: `Method not found: ${method}` } });
+  }
+});
+
+const stop = () => { for (const s of sessions.values()) s.pi.kill(); process.exit(0); };
+process.stdin.on('end', stop);
+process.on('SIGTERM', stop);

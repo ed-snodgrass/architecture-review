@@ -17,5 +17,8 @@
       "fullAccess": true
     }
   },
-  "postCreateCommand": "bin/doctor || true"
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:${containerWorkspaceFolder}/tools/pi-rpc-acp"
+  },
+  "postCreateCommand": "(npm install -g @agentclientprotocol/claude-agent-acp @agentclientprotocol/codex-acp || true) && (bin/doctor || true)"
 }

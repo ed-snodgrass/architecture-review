@@ -29,6 +29,10 @@ Fork this to start working on your factory.
   - `ITERATION` — which homework you're on, and whether it's done.
   - `stand-ins/` — fake agents: test fixtures for your factory's checks.
     They're fetched and committed with each homework.
+- `tools/pi-rpc-acp/` — from homework 6 your factory runs machines as
+  ACP agents; this is the bridge that runs pi as one. The devcontainer
+  puts it on your `PATH`, and installs the ACP adapters for Claude Code
+  and Codex.
 - `.agents/skills/` — the skills: `fetch-iteration`,
   `set-up-factory`, `coach-me`, `implement-it` and `implement-fast`.
 
