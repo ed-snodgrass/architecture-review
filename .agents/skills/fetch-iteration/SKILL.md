@@ -16,7 +16,6 @@ Work from the factory's folder: `tetris/.factory` through iteration 003, `factor
 3. Run `"$(git rev-parse --show-toplevel)/.agents/skills/fetch-iteration/fetch.sh"`. It downloads the course, then:
    - replaces `spec/README.md`, `spec/FACTORY.md` and `spec/features/` with the next iteration's, leaving anything else in `spec/` alone
    - copies the iteration's sample seed to `tetris/seeds/tetris.md` if there is one and that file doesn't exist yet
-   - refreshes `stand-ins/`
    - writes `ITERATION` as `<iteration> WIP`
    - from 004, if the factory is still in `tetris/.factory`, moves it to `factory/` with `git mv`: from 004 the factory has a codebase of its own, beside `tetris/`
 

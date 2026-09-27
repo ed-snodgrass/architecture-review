@@ -40,8 +40,6 @@ cp -r "$src/features" spec/features
 if [ -f "$src/spec.md" ] && [ ! -e "$seeds/tetris.md" ]; then
   cp "$src/spec.md" "$seeds/tetris.md"
 fi
-rm -rf stand-ins
-cp -r "$tmp/stand-ins" stand-ins
 
 echo "$id WIP" > ITERATION
 echo "adopted iteration $id (${next#* })"

@@ -23,5 +23,5 @@ Rules:
 - Do not edit anything in `spec/`. `ITERATION` is yours to update.
 - Do not commit unrelated existing changes.
 - Keep the implementation scoped to the spec.
-- Keep the factory minimal. It never contains an agent of its own, stand-in or otherwise.
+- Keep the factory minimal. It never contains an agent of its own, test double or otherwise.
 - If the suite fails and you cannot fix it within the spec, stop and report the failure.

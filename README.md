@@ -27,8 +27,6 @@ Fork this to start working on your factory.
   - `spec/` — the current homework: `README.md`, `FACTORY.md` and the
     acceptance criteria in `features/`, which are also your tests.
   - `ITERATION` — which homework you're on, and whether it's done.
-  - `stand-ins/` — fake agents: test fixtures for your factory's checks.
-    They're fetched and committed with each homework.
 - `tools/pi-rpc-acp/` — from homework 6 your factory runs machines as
   ACP agents; this is the bridge that runs pi as one. The devcontainer
   puts it on your `PATH`, and installs the ACP adapters for Claude Code

@@ -44,5 +44,5 @@ Rules:
 - Do not commit unrelated existing changes.
 - Keep each implementation scoped to its spec.
 - Keep the factory minimal: a short loop driving the agent, with state on disk. Do not encode the plan or the seed in code.
-- The factory never contains an agent of its own, stand-in or otherwise. Stand-ins are chosen from outside, the same way `pi` is.
+- The factory never contains an agent of its own, test double or otherwise. Doubles live with the step definitions and are chosen from outside, the same way `pi` is.
 - Avoid defensive code and production hardening unless the spec asks for it.

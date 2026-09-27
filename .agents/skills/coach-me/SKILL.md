@@ -14,8 +14,7 @@ You work from the factory's folder: `tetris/.factory` through iteration 003, and
 - `spec/` — the iteration they're working on, fetched from the course: `README.md`, `FACTORY.md` and `features/`. The feature files are also the factory's test suite.
 - `ITERATION` — their progress: one line, the iteration and its status, e.g. `001 WIP`.
 - `tetris/seeds/` — the seeds the factory builds from.
-- `stand-ins/` — stand-in agents, which the tests use in place of a real agent.
-- **The step definitions** — the student's, in their factory project. They tie the feature files to the factory.
+- **The step definitions** — the student's, in their factory project. They tie the feature files to the factory, and make the machines in each example do what it says, with test doubles the student writes (homework 1's README explains).
 - **The codebase** — the `tetris/` folder. The factory builds the game there; you don't. Through 003 it is the folder around the factory. From 004 it is a target beside it, and holds its assembly lines and their machines in `tetris/.assembly-lines/`.
 
 ## Coaching
@@ -70,7 +69,7 @@ Follow this process exactly:
   - Do not encode the plan or the seed in code.
   - Do not build a framework.
   - Do not add defensive code or hardening. This is a learning exercise.
-- The factory never contains an agent of its own, stand-in or otherwise. Stand-ins are chosen from outside, the same way `pi` is.
+- The factory never contains an agent of its own, test double or otherwise. Doubles live with the step definitions and are chosen from outside, the same way `pi` is.
 - You may run commands to inspect files, review diffs, and run checks.
 - Do not commit unrelated existing changes.
 - Keep coaching steps small enough for a student to do comfortably.
