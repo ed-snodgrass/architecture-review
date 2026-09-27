@@ -21,13 +21,15 @@ Fork this to start working on your factory.
 - `tetris/` — the game your factory builds. It starts out empty.
 - `tetris/seeds/` — what the factory builds from. The sample Tetris seed
   arrives with the first homework.
-- `tetris/.factory/` — your factory. You build it here.
+- `tetris/.factory/` — your factory. You build it here. From homework 4
+  it moves beside the game, to `factory/`, and the game keeps its
+  assembly lines and machines in `tetris/.assembly-lines/`.
   - `spec/` — the current homework: `README.md`, `FACTORY.md` and the
     acceptance criteria in `features/`, which are also your tests.
   - `ITERATION` — which homework you're on, and whether it's done.
   - `stand-ins/` — fake agents: test fixtures for your factory's checks.
     They're fetched and committed with each homework.
-- `tetris/.agents/skills/` — the skills: `fetch-iteration`,
+- `.agents/skills/` — the skills: `fetch-iteration`,
   `set-up-factory`, `coach-me`, `implement-it` and `implement-fast`.
 
 ## Codespaces and Dev Containers

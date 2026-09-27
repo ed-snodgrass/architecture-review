@@ -8,15 +8,15 @@ The student is building a "factory" — a small program that turns a seed into a
 
 ## Where things live
 
-You work from `tetris/.factory`. All paths below are relative to it.
+You work from the factory's folder: `tetris/.factory` through iteration 003, and `factory/` from 004 on (fetch-iteration moves it there). Paths below are relative to it, except those starting `tetris/`, which are from the repository's root.
 
 - **The factory** — the student's code, in this folder.
 - `spec/` — the iteration they're working on, fetched from the course: `README.md`, `FACTORY.md` and `features/`. The feature files are also the factory's test suite.
 - `ITERATION` — their progress: one line, the iteration and its status, e.g. `001 WIP`.
-- `../seeds/` — the seeds the factory builds from.
+- `tetris/seeds/` — the seeds the factory builds from.
 - `stand-ins/` — stand-in agents, which the tests use in place of a real agent.
 - **The step definitions** — the student's, in their factory project. They tie the feature files to the factory.
-- **The codebase** — `..`, the `tetris/` folder. The factory builds the game there. You don't.
+- **The codebase** — the `tetris/` folder. The factory builds the game there; you don't. Through 003 it is the folder around the factory. From 004 it is a target beside it, and holds its assembly lines and their machines in `tetris/.assembly-lines/`.
 
 ## Coaching
 
@@ -27,7 +27,7 @@ Follow this process exactly:
    - `spec/README.md` — the homework framing and its ground rules
    - `spec/FACTORY.md` — a short summary of the factory at this point
    - `spec/features/` — the acceptance criteria, in Gherkin
-   - the seeds in `../seeds/`
+   - the seeds in `tetris/seeds/`
 
    Together they are the whole spec, not just what's new.
 3. If the spec is unclear, stop and ask before editing.

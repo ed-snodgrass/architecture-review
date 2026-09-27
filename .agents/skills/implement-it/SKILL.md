@@ -6,12 +6,12 @@ Implement the current homework iteration, then explain and demo what changed bef
 
 This is guided autopilot. Do the implementation yourself, but walk the student through the build one iteration at a time. After each iteration, show what was learned, what changed, how to try it, and what's still missing.
 
-Work from `tetris/.factory`. The spec is in `spec/`, the student's progress in `ITERATION`, and the seeds in `../seeds/`. The codebase the factory builds the game in is `..`.
+Work from the factory's folder: `tetris/.factory` through iteration 003, and `factory/` from 004 on (fetch-iteration moves it there). Paths in the repository below are from its root. The spec is in `spec/`, the student's progress in `ITERATION`, and the seeds in `tetris/seeds/`. The factory builds the game in `tetris/`: the folder around it through 003, and a target beside it from 004, holding its assembly lines and their machines in `tetris/.assembly-lines/`.
 
 Follow this process exactly:
 
 1. Read `ITERATION`. If it is missing or says `Done`, follow the fetch-iteration skill first. Carry on here once it has committed the adoption.
-2. Read the whole spec: `spec/README.md`, `spec/FACTORY.md`, `spec/features/` and the seeds in `../seeds/`.
+2. Read the whole spec: `spec/README.md`, `spec/FACTORY.md`, `spec/features/` and the seeds in `tetris/seeds/`.
 3. If the spec is unclear, stop and ask before editing.
 4. Check the working tree and avoid touching unrelated student changes.
 5. Check the current branch.
