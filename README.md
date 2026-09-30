@@ -13,12 +13,12 @@ first.
    fork's repository name to your capstone's name, then clone your fork.
    If you're using Codespaces or a Dev Container, read
    [Codespaces and Dev Containers](#codespaces-and-dev-containers) first.
-2. `cd tetris/.factory` and fire up your favourite coding agent harness
-   (Claude Code, Codex, Pi, etc) there, not at the repository's root.
-   That folder is where your agent finds its instructions and skills.
+2. Open your favourite coding agent harness (Claude Code, Codex, Pi,
+   etc) at the repository root. That is where it finds its instructions
+   and skills. Your factory source lives in `factory/`.
 3. Say "fetch iteration". It downloads the first homework from the
    [course](https://github.com/lean-software-production/tutorial) into
-   `spec/`.
+   `factory/spec/`.
 4. Say "coach me" to work through it step by step. The first time, it
    helps you pick a language and set up a Gherkin runner: the feature
    files in each homework are your factory's test suite, and you build
@@ -27,21 +27,52 @@ first.
 
 ## Where things live
 
-- `tetris/` — the game your factory builds. It starts out empty.
-- `tetris/seeds/` — what the factory builds from. The sample Tetris seed
-  arrives with the first homework.
-- `tetris/.factory/` — your factory. You build it here. From homework 4
-  it moves beside the game, to `factory/`, and the game keeps its
-  assembly lines and machines in `tetris/.assembly-lines/`.
+- `factory/` — your factory source, from the first homework onward.
   - `spec/` — the current homework: `README.md`, `FACTORY.md` and the
     acceptance criteria in `features/`, which are also your tests.
   - `ITERATION` — which homework you're on, and whether it's done.
+- `bin/factory` — a symlink to your factory's entry point, created during
+  setup after you choose a language. Run it from the repository root.
+- `tetris/spec.md` — the practice seed, supplied with the first homework.
+- `tetris/tetris1/`, `tetris/tetris2/` — generated practice games, one
+  folder per generation. Each keeps its own plan in `.factory/plan.md`
+  through homework 3. The factory commits only the selected target's
+  generated work, excluding its plan, in this repository.
+- Your capstone product — a separate folder later, such as `plant-feeder/`
+  in a fork named `my-plant-feeder`.
+- `bin/doctor`, `bin/doctor_test.sh` — starter environment checks.
 - `tools/pi-rpc-acp/` — from homework 6 your factory runs machines as
   ACP agents; this is the bridge that runs pi as one. The devcontainer
   puts it on your `PATH`, and installs the ACP adapters for Claude Code
   and Codex.
 - `.agents/skills/` — the skills: `fetch-iteration`,
   `set-up-factory`, `coach-me`, `implement-it` and `implement-fast`.
+
+## Build into a chosen folder
+
+After you build homework 1, run from the repository root:
+
+```sh
+bin/factory --seed tetris/spec.md --target tetris/tetris1 --all
+npm --prefix tetris/tetris1 start
+```
+
+After homework 2 adds validation, build the same seed in a fresh target:
+
+```sh
+bin/factory --seed tetris/spec.md --target tetris/tetris2 --all
+npm --prefix tetris/tetris2 start
+```
+
+A new target starts with a new plan; running it again resumes that plan.
+Both games stay available for comparison. Targets are plain folders;
+Git is initialized only if the target is outside any repository.
+`bin/factory` is the entry point you build during the homework.
+
+Homework 3 replaces `--all` with running an assembly line. Homework 4
+names the job and remembers its seed, target and line. Plans move to
+`factory/jobs/<name>/`, and lines and machines move into each target's
+`.assembly-lines/`. The factory source stays in `factory/` throughout.
 
 ## Codespaces and Dev Containers
 
@@ -80,4 +111,7 @@ with `/model` and `/permissions`, or in `~/.codex/config.toml`. Full Access
 means Codex can run any command, including `git push` with the Codespace's
 GitHub token, without asking.
 
-Run `tests/doctor_test.sh` to exercise `bin/doctor` against fake agent CLIs.
+Run `bin/doctor_test.sh` to exercise `bin/doctor` against fake agent CLIs.
+
+Run `python3 .agents/skills/fetch-iteration/fetch_test.py` to check fetching
+without network access.

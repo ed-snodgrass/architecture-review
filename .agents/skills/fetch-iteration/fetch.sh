@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Adopt the iteration after the one in ITERATION (or the first, if there is
-# none). Run from the factory's folder: tetris/.factory through iteration
-# 003, factory/ from 004 (this script moves it there when it adopts 004).
+# none). The factory source lives in factory/ for every iteration.
+# This script may be called from any directory.
 # Reads the course from GitHub at $COURSE_REF (default main). Does not
 # commit.
 set -euo pipefail
 
 ref=${COURSE_REF:-main}
-root=$(git rev-parse --show-toplevel)
-seeds="$root/tetris/seeds"
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)
+mkdir -p "$root/factory"
+cd "$root/factory"
+seed="$root/tetris/spec.md"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -33,22 +35,13 @@ fi
 id=${next%% *}
 src="$tmp/docs/iterations/${next#* }"
 
-mkdir -p spec/features "$seeds"
+mkdir -p spec/features "$(dirname "$seed")"
 cp "$src/README.md" "$src/FACTORY.md" spec/
 rm -rf spec/features
 cp -r "$src/features" spec/features
-if [ -f "$src/spec.md" ] && [ ! -e "$seeds/tetris.md" ]; then
-  cp "$src/spec.md" "$seeds/tetris.md"
+if [ -f "$src/spec.md" ] && [ ! -e "$seed" ]; then
+  cp "$src/spec.md" "$seed"
 fi
 
 echo "$id WIP" > ITERATION
 echo "adopted iteration $id (${next#* })"
-
-# From 004 the factory has a codebase of its own, beside tetris/.
-if [ "$((10#$id))" -ge 4 ] && [ "$(pwd -P)" = "$(cd "$root/tetris/.factory" 2>/dev/null && pwd -P)" ]; then
-  cd "$root"
-  git mv tetris/.factory factory
-  ln -sfn ../../.agents/skills factory/.claude/skills
-  git add factory/.claude/skills
-  echo "moved the factory to factory/: reopen your coding agent there"
-fi

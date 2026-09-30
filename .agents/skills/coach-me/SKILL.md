@@ -8,14 +8,14 @@ The student is building a "factory" — a small program that turns a seed into a
 
 ## Where things live
 
-You work from the factory's folder: `tetris/.factory` through iteration 003, and `factory/` from 004 on (fetch-iteration moves it there). Paths below are relative to it, except those starting `tetris/`, which are from the repository's root.
+Open the agent at the repository root. The factory source, `spec/` and `ITERATION` live in `factory/` for every iteration. Paths below are relative to `factory/` unless stated otherwise. Run the factory CLI from the repository root through `bin/factory`.
 
 - **The factory** — the student's code, in this folder.
 - `spec/` — the iteration they're working on, fetched from the course: `README.md`, `FACTORY.md` and `features/`. The feature files are also the factory's test suite.
 - `ITERATION` — their progress: one line, the iteration and its status, e.g. `001 WIP`.
-- `tetris/seeds/` — the seeds the factory builds from.
+- `tetris/spec.md` (from the repository root) — the practice seed passed with `--seed`.
 - **The step definitions** — the student's, in their factory project. They tie the feature files to the factory, and make the machines in each example do what it says, with test doubles the student writes (homework 1's README explains).
-- **The codebase** — the `tetris/` folder. The factory builds the game there; you don't. Through 003 it is the folder around the factory. From 004 it is a target beside it, and holds its assembly lines and their machines in `tetris/.assembly-lines/`.
+- **The codebase** — the folder passed with `--target`, such as `tetris/tetris1/` or `tetris/tetris2/` (from the repository root). The factory builds the game there; you don't. Each target is a plain folder, with its own `.factory/plan.md` through 003. The factory commits only paths inside that target in the containing Git repository, excluding its plan. It initializes Git only when the target has no containing repository. From 004, jobs keep plans here in `jobs/<name>/`, and targets hold lines and machines in `.assembly-lines/`.
 
 ## Coaching
 
@@ -26,12 +26,12 @@ Follow this process exactly:
    - `spec/README.md` — the homework framing and its ground rules
    - `spec/FACTORY.md` — a short summary of the factory at this point
    - `spec/features/` — the acceptance criteria, in Gherkin
-   - the seeds in `tetris/seeds/`
+   - the seed at `tetris/spec.md` relative to the repository root
 
    Together they are the whole spec, not just what's new.
 3. If the spec is unclear, stop and ask before editing.
 4. Check the working tree and avoid touching unrelated student changes.
-5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite; if it doesn't, work it out from the project.
+5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. The repository-root `AGENTS.md` says how to run the suite; if it doesn't, work it out from the project.
 6. Run the suite, leaving out the `@real-agent` examples. Note which examples fail and which steps are undefined: that is this iteration's work.
 7. Introduce the iteration with a very concise overview:
    - Goal: the behaviour to add, in plain language (from the README and `FACTORY.md`, not the Gherkin).
