@@ -54,6 +54,8 @@ After you build homework 1, run from the repository root:
 
 ```sh
 bin/factory --seed tetris/spec.md --target tetris/tetris1 --all
+git add -- tetris/tetris1/.factory/plan.md
+git commit --only -m "Save Tetris 1 plan" -- tetris/tetris1/.factory/plan.md
 npm --prefix tetris/tetris1 start
 ```
 
@@ -61,18 +63,20 @@ After homework 2 adds validation, build the same seed in a fresh target:
 
 ```sh
 bin/factory --seed tetris/spec.md --target tetris/tetris2 --all
+git add -- tetris/tetris2/.factory/plan.md
+git commit --only -m "Save Tetris 2 plan" -- tetris/tetris2/.factory/plan.md
 npm --prefix tetris/tetris2 start
 ```
+
+Commit each generation's plan as shown above so it stays with the game in
+Git. The factory leaves plans out of its per-task work commits; these
+separate plan commits preserve the generation's record. The path arguments
+keep any unrelated staged edits out of these commits.
 
 A new target starts with a new plan; running it again resumes that plan.
 Both games stay available for comparison. Targets are plain folders;
 Git is initialized only if the target is outside any repository.
 `bin/factory` is the entry point you build during the homework.
-
-Homework 3 replaces `--all` with running an assembly line. Homework 4
-names the job and remembers its seed, target and line. Plans move to
-`factory/jobs/<name>/`, and lines and machines move into each target's
-`.assembly-lines/`. The factory source stays in `factory/` throughout.
 
 ## Codespaces and Dev Containers
 

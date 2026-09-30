@@ -15,7 +15,7 @@ Open the agent at the repository root. The factory source, `spec/` and `ITERATIO
 - `ITERATION` — their progress: one line, the iteration and its status, e.g. `001 WIP`.
 - `tetris/spec.md` (from the repository root) — the practice seed passed with `--seed`.
 - **The step definitions** — the student's, in their factory project. They tie the feature files to the factory, and make the machines in each example do what it says, with test doubles the student writes (homework 1's README explains).
-- **The codebase** — the folder passed with `--target`, such as `tetris/tetris1/` or `tetris/tetris2/` (from the repository root). The factory builds the game there; you don't. Each target is a plain folder, with its own `.factory/plan.md` through 003. The factory commits only paths inside that target in the containing Git repository, excluding its plan. It initializes Git only when the target has no containing repository. From 004, jobs keep plans here in `jobs/<name>/`, and targets hold lines and machines in `.assembly-lines/`.
+- **The codebase** — the folder passed with `--target`, such as `tetris/tetris1/` or `tetris/tetris2/` (from the repository root). The factory builds the game there; you don't. The current feature specs define target behavior and where plans and other state live.
 
 ## Coaching
 
@@ -55,8 +55,9 @@ Follow this process exactly:
 15. Repeat steps 8-14 until the whole suite passes, leaving out the `@real-agent` examples.
 16. Offer the `@real-agent` examples as something to try by hand, with `pi`, using the README's example commands. They are optional.
 17. Finish by pointing at what's still missing. Read the closing lines of `spec/README.md` for what the next homework builds on, and make clear that any remaining rough edges are expected at this point.
-18. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-19. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
+18. Look for the exact heading `## Once your suite passes` in `spec/README.md`. If it is present, offer to work through that section with the student before marking the iteration Done, including creating an HTML comparison report when the README suggests one. Wait for their answer. If they accept, work through the section with them; if they decline, continue to the completion step. Follow the course's tasks rather than inventing them. If the section is absent, continue directly. This heading is a shared contract with the tutorial repository; course content stays in the README.
+19. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+20. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
 
 ## Rules
 

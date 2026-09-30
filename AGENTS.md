@@ -1,21 +1,19 @@
 # Agent instructions
 
-This is a software factory built during the lean software manufacturing
-course. Open your agent at the repository root. Build the factory source
-in `factory/`; it stays there for every homework. Run it from the root
-through `bin/factory`, a symlink set-up-factory creates after the student
-chooses a language. Both `--seed` and `--target` are required from homework 1:
-`bin/factory --seed tetris/spec.md --target tetris/tetris1`.
+This is the starter for a software factory built during the lean software
+manufacturing course. Open the agent at the repository root. Student
+factory source and fetched homework live in `factory/`. Setup creates
+`bin/factory`, a symlink to the entry point in the student's chosen language.
+The homework specs define how the factory runs and manages its targets.
 
-Targets are plain folders. The factory commits only the generated work
-inside the selected target, in the Git repository containing it. Plans
-live in `<target>/.factory/plan.md` through 003, excluded from work commits.
-From 004, jobs keep plans in `factory/jobs/<name>/`, and targets keep lines
-and machines in `.assembly-lines/`.
+When helping a student, use the skills below for the homework they request.
+When maintaining the starter itself, work on the requested scaffolding,
+skills or tooling change; homework adoption is a separate student action.
+Course content is authored in the tutorial repository and fetched here.
 
-The repository is the student's fork, named for their capstone project.
-Tetris is not their capstone: it is the practice target every student's
-factory builds first. Say so when you first explain the course to them.
+Students name their fork for their capstone project. Tetris is the shared
+practice target their factories build first, not their capstone. Explain
+that distinction when introducing the course to a student.
 
 - `factory/spec/` holds the current homework iteration, fetched from the course. Don't edit it. Its feature files are the factory's test suite.
 - `factory/ITERATION` holds the student's progress, e.g. `001 WIP`.
