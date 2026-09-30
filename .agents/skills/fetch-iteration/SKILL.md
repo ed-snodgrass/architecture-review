@@ -23,8 +23,9 @@ Work from the factory's folder: `tetris/.factory` through iteration 003, `factor
 4. From the repository's root, commit the factory's folder, `tetris/seeds/` and, if fetch.sh moved the factory, its old folder, with message `Adopt spec for iteration <iteration>`.
    - If fetch.sh moved the factory, tell the student plainly: close this session and open their coding agent in `factory/` from now on. Their homework 3 line and machines belong in `tetris/.assembly-lines/`, which the 004 homework explains. Then stop.
 5. For any iteration after 001, show the student what changed: `git show --stat HEAD`, and the diff of `spec/FACTORY.md`. That diff is how the factory's spec evolves.
-6. If there is a suite, run it, leaving out the `@real-agent` examples, and show which examples now fail or have undefined steps. That is the work for this iteration: steps keep their words between iterations unless their meaning changed.
-7. Tell the student to say "coach me" to work through it step by step. Or, if they want you to build it, they can use `implement-it` (you build it, then demo it) or `implement-fast` (you just build it).
+6. Give the student a concise sense of the bigger picture: What is the goal of this iteration, what will they be able to do with their factory when we're done with this iteration, and what will they learn about along the way. Ask the student if they understand, and encourage them to ask you for more details before proceeding.
+7. If there is a suite, run it, leaving out the `@real-agent` examples, and show which examples now fail or have undefined steps. That is the work for this iteration: steps keep their words between iterations unless their meaning changed.
+8. Tell the student to say "coach me" to work through it step by step. Or, if they want you to build it, they can use `implement-it` (you build it, then demo it) or `implement-fast` (you just build it).
 
 ## Rules
 
