@@ -6,6 +6,10 @@ course. It builds Tetris in the `tetris/` folder, from the seeds in
 inside the game it builds; from 004 it is `factory/`, beside it, and the
 game's assembly lines and machines live in `tetris/.assembly-lines/`.
 
+The repository is the student's fork, named for their capstone project.
+Tetris is not their capstone: it is the practice target every student's
+factory builds first. Say so when you first explain the course to them.
+
 - `spec/` holds the current homework iteration, fetched from the course. Don't edit it. Its feature files are the factory's test suite.
 - `ITERATION` holds the student's progress, e.g. `001 WIP`.
 

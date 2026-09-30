@@ -2,11 +2,20 @@
 
 Fork this to start working on your factory.
 
+Your fork is your capstone project, so name it for your capstone. The
+homeworks don't start there: they build Tetris, in `tetris/`, as a
+practice target that everyone shares. Your factory learns on Tetris
+first.
+
 ## Get started
 
-1. Fork or clone this repo.
+1. Pick a name for your capstone project. Fork this repo and set the
+   fork's repository name to your capstone's name, then clone your fork.
+   If you're using Codespaces or a Dev Container, read
+   [Codespaces and Dev Containers](#codespaces-and-dev-containers) first.
 2. `cd tetris/.factory` and fire up your favourite coding agent harness
-   (Claude Code, Codex, Pi, etc) there.
+   (Claude Code, Codex, Pi, etc) there, not at the repository's root.
+   That folder is where your agent finds its instructions and skills.
 3. Say "fetch iteration". It downloads the first homework from the
    [course](https://github.com/lean-software-production/tutorial) into
    `spec/`.
