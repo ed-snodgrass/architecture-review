@@ -37,7 +37,7 @@ first.
 - `tetris/tetris1/`, `tetris/tetris2/` — generated practice games, one
   folder per generation. Each keeps its own plan in `.factory/plan.md`
   through homework 3. The factory commits only the selected target's
-  generated work, excluding its plan, in this repository.
+  generated work and plan in this repository.
 - Your capstone product — a separate folder later, such as `plant-feeder/`
   in a fork named `my-plant-feeder`.
 - `bin/doctor`, `bin/doctor_test.sh` — starter environment checks.
@@ -54,8 +54,6 @@ After you build homework 1, run from the repository root:
 
 ```sh
 bin/factory --seed tetris/spec.md --target tetris/tetris1 --all
-git add -- tetris/tetris1/.factory/plan.md
-git commit --only -m "Save Tetris 1 plan" -- tetris/tetris1/.factory/plan.md
 npm --prefix tetris/tetris1 start
 ```
 
@@ -63,15 +61,12 @@ After homework 2 adds validation, build the same seed in a fresh target:
 
 ```sh
 bin/factory --seed tetris/spec.md --target tetris/tetris2 --all
-git add -- tetris/tetris2/.factory/plan.md
-git commit --only -m "Save Tetris 2 plan" -- tetris/tetris2/.factory/plan.md
 npm --prefix tetris/tetris2 start
 ```
 
-Commit each generation's plan as shown above so it stays with the game in
-Git. The factory leaves plans out of its per-task work commits; these
-separate plan commits preserve the generation's record. The path arguments
-keep any unrelated staged edits out of these commits.
+The factory commits each generation's plan along with its work. You do not
+need a separate plan checkpoint. A completed run leaves the target's work
+and final plan recorded in Git, without including unrelated changes.
 
 A new target starts with a new plan; running it again resumes that plan.
 Both games stay available for comparison. Targets are plain folders;
