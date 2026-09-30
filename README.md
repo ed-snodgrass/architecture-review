@@ -64,9 +64,9 @@ bin/factory --seed tetris/spec.md --target tetris/tetris2 --all
 npm --prefix tetris/tetris2 start
 ```
 
-The factory commits each generation's plan along with its work. You do not
-need a separate plan checkpoint. A completed run leaves the target's work
-and final plan recorded in Git, without including unrelated changes.
+The factory commits each generation's plan along with its work. A completed
+run leaves the target's work and final plan recorded in Git, without including
+unrelated changes.
 
 A new target starts with a new plan; running it again resumes that plan.
 Both games stay available for comparison. Targets are plain folders;
