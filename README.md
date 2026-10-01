@@ -37,9 +37,11 @@ too.
 ## Before you begin
 
 - [ ] A GitHub account.
-- [ ] A ChatGPT plan that includes Codex.
-- [ ] Device code sign-in turned on for Codex, which Pi uses to sign
-      in from a Codespace: in ChatGPT, open
+- [ ] A model provider subscription or API key. We recommend a ChatGPT
+      plan that includes Codex, and this guide uses one, but other model
+      providers work too: see [Other setups](#other-setups).
+- [ ] With ChatGPT, device code sign-in turned on for Codex, which Pi
+      uses to sign in from a Codespace: in ChatGPT, open
       **Settings → Security** and turn on **Enable device code
       authorization for Codex**. On a Business or Team workspace, your
       workspace admin turns it on under **Permissions & Roles**.
@@ -207,6 +209,12 @@ If you'd rather the agent build a homework for you, say
 to just build it.
 
 ## Other setups
+
+To use another model provider, sign Pi in to it with `/login` (or an API
+key), and coach with an agent that works with that provider, such as
+Claude Code with an Anthropic subscription. Check with
+`bin/doctor --agent` and that agent (`pi`, `claude` or `codex`); the
+rest of the guide is the same.
 
 You can work in a Dev Container on your own computer, or without a
 container at all, with any coding agent harness (Pi, Claude Code,
