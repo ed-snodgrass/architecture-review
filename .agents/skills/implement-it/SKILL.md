@@ -23,17 +23,19 @@ Follow this process exactly:
    - If it has undefined steps, define them, true to their words, reusing the step definitions that exist. Run it: it should fail for the reason the factory change will fix.
    - Make the smallest factory change that makes it pass, without breaking the examples that passed before.
 10. If the suite fails and you cannot fix it within the spec, stop and report the failure.
-11. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-12. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
-13. Report back with:
+11. From the repository root, verify the public CLI through the exact `bin/factory` entry point before presenting any CLI command as runnable. Run the README's command when it is safe. If a full run would contact a real agent, do not run it; use a non-destructive invocation that reaches the language CLI and proves launcher resolution and argument parsing, then explicitly report that the real-agent command was not run. Checking the symlink, file existence or executable bits alone is not enough.
+12. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+13. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
+14. Report back with:
     - the iteration number and title
     - the goal in plain language, from `spec/README.md` and `spec/FACTORY.md`
     - a short summary of what changed, in the factory and in the step definitions
     - the suite passing, as the student can run it
-    - the README's example CLI commands, and the `@real-agent` examples, as things the student can try by hand with `pi`
+    - the public-entrypoint command used for the smoke test and its result
+    - the README's example CLI commands, and the `@real-agent` examples, as things the student can try by hand with `pi`; if only a non-destructive smoke test was run, say that the real-agent command was not run
     - what's still missing, from the closing lines of `spec/README.md`
-14. Ask: "Ready for me to implement the next iteration?"
-15. Stop and wait for the student's answer. If they say yes, repeat from step 1. If they say no, stop.
+15. Ask: "Ready for me to implement the next iteration?"
+16. Stop and wait for the student's answer. If they say yes, repeat from step 1. If they say no, stop.
 
 Rules:
 

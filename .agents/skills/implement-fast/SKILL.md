@@ -14,8 +14,9 @@ Follow this process exactly:
 4. Check the working tree and avoid touching unrelated student changes.
 5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite.
 6. Implement only this iteration, driven by the suite, leaving out the `@real-agent` examples. Do not start any later iteration. Until the suite passes: take the first example that fails or has undefined steps, define its missing steps (true to their words, reusing what exists), then make the smallest factory change that makes it pass.
-7. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-8. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
+7. From the repository root, verify the public CLI through the exact `bin/factory` entry point before presenting any CLI command as runnable. Run the README's command when it is safe. If a full run would contact a real agent, do not run it; use a non-destructive invocation that reaches the language CLI and proves launcher resolution and argument parsing, and explicitly say in the final summary that the real-agent command was not run. Checking the symlink, file existence or executable bits alone is not enough.
+8. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+9. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
 
 Rules:
 
