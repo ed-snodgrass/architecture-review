@@ -34,7 +34,7 @@ first.
 - `bin/factory` — a symlink to your factory's entry point, created during
   setup after you choose a language. Run it from the repository root.
 - `tetris/spec.md` — the practice seed, supplied with the first homework.
-- `tetris/tetris1/`, `tetris/tetris2/` — generated practice games, one
+- `tetris/tetris-001/`, `tetris/tetris-002/` — generated practice games, one
   folder per generation. Each keeps its own plan in `.factory/plan.md`
   through homework 3. The factory commits only the selected target's
   generated work and plan in this repository.
@@ -53,15 +53,15 @@ first.
 After you build homework 1, run from the repository root:
 
 ```sh
-bin/factory --seed tetris/spec.md --target tetris/tetris1 --all
-npm --prefix tetris/tetris1 start
+bin/factory --seed tetris/spec.md --target tetris/tetris-001 --all
+npm --prefix tetris/tetris-001 start
 ```
 
 After homework 2 adds validation, build the same seed in a fresh target:
 
 ```sh
-bin/factory --seed tetris/spec.md --target tetris/tetris2 --all
-npm --prefix tetris/tetris2 start
+bin/factory --seed tetris/spec.md --target tetris/tetris-002 --all
+npm --prefix tetris/tetris-002 start
 ```
 
 The factory commits each generation's plan along with its work. A completed
