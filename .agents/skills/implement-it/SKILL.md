@@ -23,7 +23,10 @@ Follow this process exactly:
    - If it has undefined steps, define them, true to their words, reusing the step definitions that exist. Run it: it should fail for the reason the factory change will fix.
    - Make the smallest factory change that makes it pass, without breaking the examples that passed before.
 10. If the suite fails and you cannot fix it within the spec, stop and report the failure.
-11. Look for the exact heading `## Once your suite passes` in `spec/README.md`. If it is present, offer to work through that section with the student before marking the iteration Done, including creating an HTML comparison report when the README suggests one. Wait for their answer. If they accept, work through the section with them; if they decline, continue to the completion step. Follow the course's tasks rather than inventing them. If the section is absent, continue directly. This heading is a shared contract with the tutorial repository; course content stays in the README.
+11. Once the suite passes, check the iteration description in `spec/README.md` for optional follow-up work before marking the iteration Done:
+    - Look for the exact heading `## Once your suite passes`. If present, offer to work through that section, including creating an HTML comparison report when the README suggests one. This heading is a shared contract with the tutorial repository; course content stays in the README.
+    - If the description includes a bonus round, show the student its goal and tasks, and ask whether they would like to try it. Use the README's bonus round rather than inventing one.
+    - For each offer, wait for the student's answer. If they accept, work through the course's tasks with them; if they decline, skip that activity. If neither section is present, continue directly. Skipping optional work does not prevent marking the iteration Done.
 12. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
 13. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
 14. Report back with:

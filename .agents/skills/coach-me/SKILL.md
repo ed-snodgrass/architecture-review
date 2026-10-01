@@ -55,7 +55,10 @@ Follow this process exactly:
 15. Repeat steps 8-14 until the whole suite passes, leaving out the `@real-agent` examples.
 16. Offer the `@real-agent` examples as something to try by hand, with `pi`, using the README's example commands. They are optional.
 17. Finish by pointing at what's still missing. Read the closing lines of `spec/README.md` for what the next homework builds on, and make clear that any remaining rough edges are expected at this point.
-18. Look for the exact heading `## Once your suite passes` in `spec/README.md`. If it is present, offer to work through that section with the student before marking the iteration Done, including creating an HTML comparison report when the README suggests one. Wait for their answer. If they accept, work through the section with them; if they decline, continue to the completion step. Follow the course's tasks rather than inventing them. If the section is absent, continue directly. This heading is a shared contract with the tutorial repository; course content stays in the README.
+18. Once the suite passes, check the iteration description in `spec/README.md` for optional follow-up work before marking the iteration Done:
+    - Look for the exact heading `## Once your suite passes`. If present, offer to work through that section, including creating an HTML comparison report when the README suggests one. This heading is a shared contract with the tutorial repository; course content stays in the README.
+    - If the description includes a bonus round, show the student its goal and tasks, and ask whether they would like to try it. Use the README's bonus round rather than inventing one.
+    - For each offer, wait for the student's answer. If they accept, coach them through the course's tasks in small, student-led steps; if they decline, skip that activity. If neither section is present, continue directly. Skipping optional work does not prevent marking the iteration Done.
 19. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
 20. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
 21. Encourage the student to take a look around their factory's codebase. Offer to answer any questions about it, and ask whether there is any refactoring they would like to do.
