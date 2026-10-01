@@ -1,17 +1,31 @@
 # capstone-project-starter
 
-Fork this to start your capstone project: a software factory you build
-during the lean software manufacturing course.
+Build a software factory. Start with one coding agent, and grow a
+system you can configure, observe and steer.
+
+This is the starter for the
+[Lean Software Production tutorial](https://lean-software-production.github.io/tutorial/slides/#/).
+Fork it to start your capstone project.
 
 ## What you're building
 
 - **Your fork is your capstone project**, so name it for your capstone:
   a fork named `my-plant-feeder` builds a plant feeder.
 - **The homeworks grow a factory**: a program that turns a written spec
-  into working software by running coding agents. Each homework adds to
-  it, and its feature files are your factory's test suite.
-- **Your factory learns on Tetris first.** Everyone's factory builds the
-  same practice game, in `tetris/`, before it builds your capstone.
+  into working software by running coding agents. Over seven homeworks
+  it learns to automate (turn a seed into working software, one task at
+  a time), compose (explicit routes, machines, jobs and targets) and
+  operate (parallel work you can watch live and steer).
+- **Your factory learns on Tetris first.** The homeworks build Tetris,
+  in `tetris/`, as a practice target everyone shares. Your capstone
+  comes later.
+
+Each homework follows the same loop:
+
+1. **Fetch**: your coding agent downloads one homework into `factory/spec/`.
+2. **Build**: make its feature files pass. They are your acceptance tests.
+   You choose the language, libraries and design.
+3. **Repeat**: fetch again. Your step definitions carry forward.
 
 This guide gets you from nothing to your first homework, open and ready
 to work on. It takes about 15 minutes, most of it waiting for your
@@ -30,9 +44,9 @@ Codespace to build. We walk through GitHub Codespaces with Codex;
 
 You don't need to install anything on your computer.
 
-## Set up
+## Get started
 
-### 1. Fork the repository
+### 1. Fork the starter
 
 On GitHub, fork this repository. Set the fork's **Repository name** to
 your capstone's name.
@@ -41,7 +55,12 @@ your capstone's name.
 
 <!-- screenshot 01-fork.png: the "Create a new fork" page with the repository name filled in -->
 
-### 2. Create a Codespace
+### 2. Open and check
+
+Open your fork in a Codespace, sign in to Codex, then check your tools
+without calling a model.
+
+#### Create a Codespace
 
 On your fork's page, click **Code → Codespaces → Create codespace on
 main**. The first build takes a few minutes.
@@ -60,7 +79,7 @@ That warning is expected: you sign in next.
 <!-- screenshot 02-codespace-menu.png: the Code → Codespaces menu with "Create codespace on main" -->
 <!-- screenshot 02-codespace-ready.png: VS Code in the browser, terminal showing the first bin/doctor output -->
 
-### 3. Sign in to Codex
+#### Sign in to Codex
 
 In the terminal, run:
 
@@ -76,10 +95,10 @@ code. The code expires after 15 minutes.
 If it fails after you enter the code, device code sign-in is probably
 off: check [Before you begin](#before-you-begin).
 
-<!-- screenshot 03-device-code.png: the terminal showing the device code and link -->
-<!-- screenshot 03-signed-in.png: the terminal reporting a successful sign-in -->
+<!-- screenshot 02-device-code.png: the terminal showing the device code and link -->
+<!-- screenshot 02-signed-in.png: the terminal reporting a successful sign-in -->
 
-### 4. Check your environment
+#### Check your tools
 
 ```sh
 bin/doctor --agent codex
@@ -92,38 +111,44 @@ PASS Codex authentication is configured.
 PASS Environment is ready for codex.
 ```
 
-If it says Codex is not on `PATH`, rebuild the container: open the
+Ready means Bash, Git, Node, npm and all three agent CLIs (Pi, Claude Code
+and Codex) are present, and Codex is signed in.
+
+If it says an agent is not on `PATH`, rebuild the container: open the
 Command Palette and run **Codespaces: Rebuild Container**. If it says
-Codex is not configured, repeat step 3.
+Codex is not configured, sign in again.
 
-<!-- screenshot 04-doctor-ready.png: bin/doctor --agent codex reporting the environment is ready -->
+<!-- screenshot 02-doctor-ready.png: bin/doctor --agent codex reporting the environment is ready -->
 
-### 5. Start Codex
+### 3. Start your coding agent
 
-From the repository root, where the terminal opens, run:
+Stay at the repository root, where the terminal opens. That is where
+your agent finds its instructions (`AGENTS.md`) and the course skills.
+Run:
 
 ```sh
 codex
 ```
 
-The repository root is where Codex finds its instructions and the
-course skills.
-
 **You should see** the Codex prompt, in `/workspaces/<capstone-name>`.
+Your factory source will live in `factory/`.
 
 Codex starts with Full Access: it runs commands, including `git push`,
 without asking first. Change that with `/permissions` if you'd rather
 approve each one.
 
-<!-- screenshot 05-codex-prompt.png: the Codex prompt at the repository root -->
+<!-- screenshot 03-codex-prompt.png: the Codex prompt at the repository root -->
 
-### 6. Fetch your first homework
+### 4. Fetch Homework 1
 
-Say to Codex:
+Now talk to your coding agent. These are requests in its chat, not
+shell commands.
+
+First say:
 
 > fetch iteration
 
-It downloads the first homework from the
+It downloads Homework 1 from the
 [course](https://github.com/lean-software-production/tutorial) into
 `factory/spec/` and commits it.
 
@@ -140,36 +165,59 @@ prints:
 001 WIP
 ```
 
-<!-- screenshot 06-fetch-iteration.png: Codex reporting the fetched homework -->
-<!-- screenshot 06-iteration.png: cat factory/ITERATION printing 001 WIP -->
+<!-- screenshot 04-fetch-iteration.png: Codex reporting the fetched homework -->
+<!-- screenshot 04-iteration.png: cat factory/ITERATION printing 001 WIP -->
+
+Then say:
+
+> coach me
+
+It walks you through the homework one passing example at a time. The
+first time, it helps you pick a language for your factory and set up a
+Gherkin runner, so the homework's feature files run as your tests.
+
+**You should see** Codex summarise Homework 1 and ask which language
+you'd like to build your factory in.
+
+<!-- screenshot 04-coach-me.png: Codex starting to coach Homework 1 -->
 
 ## You're set up when
 
 - [ ] `bin/doctor --agent codex` reports `Environment is ready for codex.`
 - [ ] `factory/ITERATION` reads `001 WIP`.
-- [ ] `factory/spec/README.md` exists, holding your first homework.
+- [ ] `factory/spec/README.md` exists, holding Homework 1.
+- [ ] Your agent is coaching you through it.
 
-## What's next
+## Keep the learning loop small
 
-Say **"coach me"** to work through the homework step by step. The first
-time, it helps you pick a language for your factory and set up a Gherkin
-runner, so the homework's feature files run as your tests. You build
-until they pass.
+- Treat `factory/spec/features/` as the spec, and don't edit the
+  fetched spec.
+- Take one failing example at a time.
+- Build one homework at a time. When its suite passes, say
+  **"fetch iteration"** again.
 
-If you'd rather the agent build it for you, say **"implement it"** for a
-walkthrough and demo, or **"implement fast"** to just build it.
-
-When a homework is done, say **"fetch iteration"** for the next one.
+If you'd rather the agent build a homework for you, say
+**"implement it"** for a walkthrough and demo, or **"implement fast"**
+to just build it.
 
 ## Other setups
 
 You can work in a Dev Container on your own computer, or without a
-container at all, with any coding agent harness (Claude Code, Codex,
-Pi, etc). Ask your agent to set up an environment equivalent to this
-repository's Codespace, described in `.devcontainer/devcontainer.json`.
-You're ready when `bin/doctor` reports `Environment is ready`; then
-carry on from [step 5](#5-start-codex), starting your agent at the
-repository root.
+container at all, with any coding agent harness (Pi, Claude Code,
+Codex, etc). Clone your fork and check it:
+
+```sh
+git clone https://github.com/<you>/<capstone-name>.git
+cd <capstone-name>
+bin/doctor
+```
+
+If anything is missing, ask your agent to set up an environment
+equivalent to this repository's Codespace, described in
+`.devcontainer/devcontainer.json`. You're ready when `bin/doctor`
+reports `Environment is ready`; then carry on from
+[step 3](#3-start-your-coding-agent), starting your agent (`pi`,
+`claude` or `codex`) at the repository root.
 
 ## Reference
 
@@ -196,13 +244,17 @@ repository root.
 - `.agents/skills/`: the skills `fetch-iteration`,
   `set-up-factory`, `coach-me`, `implement-it` and `implement-fast`.
 
-### Build into a chosen folder
+### Run your first factory
 
-After you build homework 1, run from the repository root:
+After you build homework 1, give every run the seed and its target, from
+the repository root. The first run writes the plan, each run after that
+does one task, and `--all` finishes the plan:
 
 ```sh
-bin/factory --seed tetris/spec.md --target tetris/tetris-001 --all
-npm --prefix tetris/tetris-001 start
+bin/factory --seed tetris/spec.md --target tetris/tetris-001        # write the plan
+bin/factory --seed tetris/spec.md --target tetris/tetris-001        # do one task
+bin/factory --seed tetris/spec.md --target tetris/tetris-001 --all  # finish the plan
+npm --prefix tetris/tetris-001 start                                # play the result
 ```
 
 After homework 2 adds validation, build the same seed in a fresh target:
