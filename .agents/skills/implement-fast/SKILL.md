@@ -17,6 +17,7 @@ Follow this process exactly:
 7. Look for the exact heading `## Once your suite passes` in `spec/README.md`. If it is present, offer to work through that section with the student before marking the iteration Done, including creating an HTML comparison report when the README suggests one. Wait for their answer. If they accept, work through the section with them; if they decline, continue to the completion step. Follow the course's tasks rather than inventing them. If the section is absent, continue directly. This heading is a shared contract with the tutorial repository; course content stays in the README.
 8. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
 9. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
+10. Encourage the student to take a look around their factory's codebase. Offer to answer any questions about it, and ask whether there is any refactoring they would like to do.
 
 Rules:
 

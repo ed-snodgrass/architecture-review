@@ -33,8 +33,10 @@ Follow this process exactly:
     - the suite passing, as the student can run it
     - the README's example CLI commands, and the `@real-agent` examples, as things the student can try by hand with `pi`
     - what's still missing, from the closing lines of `spec/README.md`
-15. Ask: "Ready for me to implement the next iteration?"
-16. Stop and wait for the student's answer. If they say yes, repeat from step 1. If they say no, stop.
+15. Encourage the student to take a look around their factory's codebase. Offer to answer any questions about it, and ask whether there is any refactoring they would like to do.
+16. Stop and wait for the student's answer. Answer their questions and help with any requested refactoring before moving on.
+17. Ask: "Ready for me to implement the next iteration?"
+18. Stop and wait for the student's answer. If they say yes, repeat from step 1. If they say no, stop.
 
 Rules:
 
