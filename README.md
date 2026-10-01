@@ -29,14 +29,17 @@ Each homework follows the same loop:
 
 This guide gets you from nothing to your first homework, open and ready
 to work on. It takes about 15 minutes, most of it waiting for your
-Codespace to build. We walk through GitHub Codespaces with Codex;
-[other setups](#other-setups) work too.
+Codespace to build. We walk through GitHub Codespaces, where you sign
+in two agents with your ChatGPT plan: the Codex extension, which coaches
+you, and Pi, which your factory runs. [Other setups](#other-setups) work
+too.
 
 ## Before you begin
 
 - [ ] A GitHub account.
 - [ ] A ChatGPT plan that includes Codex.
-- [ ] Device code sign-in turned on for Codex: in ChatGPT, open
+- [ ] Device code sign-in turned on for Codex, which Pi uses to sign
+      in from a Codespace: in ChatGPT, open
       **Settings → Security** and turn on **Enable device code
       authorization for Codex**. On a Business or Team workspace, your
       workspace admin turns it on under **Permissions & Roles**.
@@ -57,8 +60,8 @@ your capstone's name.
 
 ### 2. Open and check
 
-Open your fork in a Codespace, sign in to Codex, then check your tools
-without calling a model.
+Open your fork in a Codespace, sign in to the Codex extension and Pi,
+then check your tools without calling a model.
 
 #### Create a Codespace
 
@@ -66,37 +69,42 @@ On your fork's page, click **Code → Codespaces → Create codespace on
 main**. The first build takes a few minutes.
 
 **You should see** VS Code in your browser, with a terminal that ends in
-the output of `bin/doctor`. It reports Codex as installed but not yet
-configured:
-
-```text
-PASS Codex: codex-cli …
-WARN Codex is not configured. Run: codex login --device-auth (or codex login)
-```
-
-That warning is expected: you sign in next.
+the output of `bin/doctor`. It reports Pi and Codex as installed but not
+yet signed in. Those warnings are expected: you sign in next.
 
 <!-- screenshot 02-codespace-menu.png: the Code → Codespaces menu with "Create codespace on main" -->
 <!-- screenshot 02-codespace-ready.png: VS Code in the browser, terminal showing the first bin/doctor output -->
 
-#### Sign in to Codex
+#### Sign in to the Codex extension
 
-In the terminal, run:
+Open **Codex** from the sidebar and click **Sign in with ChatGPT**.
+Finish signing in to ChatGPT in the browser tab it opens.
+
+**You should see** the Codex chat panel, ready for a message.
+
+<!-- screenshot 02-codex-sign-in.png: the Codex sidebar with "Sign in with ChatGPT" -->
+<!-- screenshot 02-codex-panel.png: the Codex chat panel after signing in -->
+
+#### Sign in to Pi
+
+Your factory runs Pi to do its work. In the terminal, start Pi:
 
 ```sh
-codex login --device-auth
+pi
 ```
 
-Open the link it prints, sign in to ChatGPT, and enter the one-time
-code. The code expires after 15 minutes.
+Type `/login`, choose **OpenAI Codex (legacy)**, then **Device code
+login (headless)**. Open the link it prints, sign in to ChatGPT, and
+enter the one-time code. The code expires after 15 minutes. Then type
+`/quit` to leave Pi.
 
-**You should see** the terminal report that you're signed in.
+**You should see** Pi report that you're signed in.
 
 If it fails after you enter the code, device code sign-in is probably
 off: check [Before you begin](#before-you-begin).
 
-<!-- screenshot 02-device-code.png: the terminal showing the device code and link -->
-<!-- screenshot 02-signed-in.png: the terminal reporting a successful sign-in -->
+<!-- screenshot 02-pi-login.png: Pi's /login provider list with "OpenAI Codex (legacy)" -->
+<!-- screenshot 02-pi-device-code.png: Pi showing the device code and link -->
 
 #### Check your tools
 
@@ -104,45 +112,42 @@ off: check [Before you begin](#before-you-begin).
 bin/doctor --agent codex
 ```
 
-**You should see** these two lines, among others:
+**You should see** these lines, among others:
 
 ```text
+PASS Pi authentication is ready for provider openai-codex (native local check; no refresh).
 PASS Codex authentication is configured.
 PASS Environment is ready for codex.
 ```
 
-Ready means Bash, Git, Node, npm and all three agent CLIs (Pi, Claude Code
-and Codex) are present, and Codex is signed in.
+Ready means Bash, Git, Node, npm and all three agent CLIs (Pi, Claude
+Code and Codex) are present, and Pi and Codex are signed in.
 
 If it says an agent is not on `PATH`, rebuild the container: open the
-Command Palette and run **Codespaces: Rebuild Container**. If it says
-Codex is not configured, sign in again.
+Command Palette and run **Codespaces: Rebuild Container**. If Pi or
+Codex isn't signed in, repeat its sign-in step.
 
-<!-- screenshot 02-doctor-ready.png: bin/doctor --agent codex reporting the environment is ready -->
+<!-- screenshot 02-doctor-ready.png: bin/doctor reporting Pi and Codex signed in and the environment ready -->
 
 ### 3. Start your coding agent
 
-Stay at the repository root, where the terminal opens. That is where
-your agent finds its instructions (`AGENTS.md`) and the course skills.
-Run:
+Your coding agent is the Codex chat panel. It works in your Codespace's
+folder, the repository root, which is where it finds its instructions
+(`AGENTS.md`) and the course skills. Your factory source will live in
+`factory/`.
 
-```sh
-codex
-```
-
-**You should see** the Codex prompt, in `/workspaces/<capstone-name>`.
-Your factory source will live in `factory/`.
+**You should see** the Codex chat panel open beside your editor.
 
 Codex starts with Full Access: it runs commands, including `git push`,
-without asking first. Change that with `/permissions` if you'd rather
-approve each one.
+without asking first. Change that in the panel's permissions setting,
+or in `~/.codex/config.toml`, if you'd rather approve each one.
 
-<!-- screenshot 03-codex-prompt.png: the Codex prompt at the repository root -->
+<!-- screenshot 03-codex-panel.png: the Codex chat panel open beside the editor -->
 
 ### 4. Fetch Homework 1
 
-Now talk to your coding agent. These are requests in its chat, not
-shell commands.
+Now talk to your coding agent. These are messages in the Codex chat
+panel, not shell commands.
 
 First say:
 
@@ -152,7 +157,7 @@ It downloads Homework 1 from the
 [course](https://github.com/lean-software-production/tutorial) into
 `factory/spec/` and commits it.
 
-**You should see** Codex report the homework it fetched. In a second
+**You should see** Codex report the homework it fetched. In the
 terminal:
 
 ```sh
@@ -183,10 +188,11 @@ you'd like to build your factory in.
 
 ## You're set up when
 
-- [ ] `bin/doctor --agent codex` reports `Environment is ready for codex.`
+- [ ] `bin/doctor --agent codex` reports Pi and Codex signed in, and
+      `Environment is ready for codex.`
 - [ ] `factory/ITERATION` reads `001 WIP`.
 - [ ] `factory/spec/README.md` exists, holding Homework 1.
-- [ ] Your agent is coaching you through it.
+- [ ] Codex is coaching you through it.
 
 ## Keep the learning loop small
 
@@ -214,7 +220,8 @@ bin/doctor
 
 If anything is missing, ask your agent to set up an environment
 equivalent to this repository's Codespace, described in
-`.devcontainer/devcontainer.json`. You're ready when `bin/doctor`
+`.devcontainer/devcontainer.json`. Sign in to Pi too (`pi`, then
+`/login`), because your factory runs it. You're ready when `bin/doctor`
 reports `Environment is ready`; then carry on from
 [step 3](#3-start-your-coding-agent), starting your agent (`pi`,
 `claude` or `codex`) at the repository root.
