@@ -8,14 +8,14 @@ The student is building a "factory" — a small program that turns a seed into a
 
 ## Where things live
 
-You work from the factory's folder: `tetris/.factory` through iteration 003, and `factory/` from 004 on (fetch-iteration moves it there). Paths below are relative to it, except those starting `tetris/`, which are from the repository's root.
+Open the agent at the repository root. The factory source, `spec/` and `ITERATION` live in `factory/` for every iteration. Paths below are relative to `factory/` unless stated otherwise. Run the factory CLI from the repository root through `bin/factory`.
 
 - **The factory** — the student's code, in this folder.
 - `spec/` — the iteration they're working on, fetched from the course: `README.md`, `FACTORY.md` and `features/`. The feature files are also the factory's test suite.
 - `ITERATION` — their progress: one line, the iteration and its status, e.g. `001 WIP`.
-- `tetris/seeds/` — the seeds the factory builds from.
+- `tetris/spec.md` (from the repository root) — the practice seed passed with `--seed`.
 - **The step definitions** — the student's, in their factory project. They tie the feature files to the factory, and make the machines in each example do what it says, with test doubles the student writes (homework 1's README explains).
-- **The codebase** — the `tetris/` folder. The factory builds the game there; you don't. Through 003 it is the folder around the factory. From 004 it is a target beside it, and holds its assembly lines and their machines in `tetris/.assembly-lines/`.
+- **The codebase** — the folder passed with `--target`, such as `tetris/tetris1/` or `tetris/tetris2/` (from the repository root). The factory builds the game there; you don't. The current feature specs define target behavior and where plans and other state live.
 
 ## Coaching
 
@@ -26,12 +26,12 @@ Follow this process exactly:
    - `spec/README.md` — the homework framing and its ground rules
    - `spec/FACTORY.md` — a short summary of the factory at this point
    - `spec/features/` — the acceptance criteria, in Gherkin
-   - the seeds in `tetris/seeds/`
+   - the seed at `tetris/spec.md` relative to the repository root
 
    Together they are the whole spec, not just what's new.
 3. If the spec is unclear, stop and ask before editing.
 4. Check the working tree and avoid touching unrelated student changes.
-5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite; if it doesn't, work it out from the project.
+5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. The repository-root `AGENTS.md` says how to run the suite; if it doesn't, work it out from the project.
 6. Run the suite, leaving out the `@real-agent` examples. Note which examples fail and which steps are undefined: that is this iteration's work.
 7. Introduce the iteration with a very concise overview:
    - Goal: the behaviour to add, in plain language (from the README and `FACTORY.md`, not the Gherkin).
@@ -55,8 +55,14 @@ Follow this process exactly:
 15. Repeat steps 8-14 until the whole suite passes, leaving out the `@real-agent` examples.
 16. Offer the `@real-agent` examples as something to try by hand, with `pi`, using the README's example commands. They are optional.
 17. Finish by pointing at what's still missing. Read the closing lines of `spec/README.md` for what the next homework builds on, and make clear that any remaining rough edges are expected at this point.
-18. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-19. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
+18. Once the suite passes, check the iteration description in `spec/README.md` for optional follow-up work before marking the iteration Done:
+    - Look for the exact heading `## Once your suite passes`. If present, offer to work through that section, including creating an HTML comparison report when the README suggests one. This heading is a shared contract with the tutorial repository; course content stays in the README.
+    - If the description includes a bonus round, show the student its goal and tasks, and ask whether they would like to try it. Use the README's bonus round rather than inventing one.
+    - For each offer, wait for the student's answer. If they accept, coach them through the course's tasks in small, student-led steps; if they decline, skip that activity. If neither section is present, continue directly. Skipping optional work does not prevent marking the iteration Done.
+19. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+20. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>` (e.g. `Implement homework 003`).
+21. Encourage the student to take a look around their factory's codebase. Offer to answer any questions about it, and ask whether there is any refactoring they would like to do.
+22. Stop and wait for the student's answer. Answer their questions and coach them through any requested refactoring in the same small, student-led steps.
 
 ## Rules
 

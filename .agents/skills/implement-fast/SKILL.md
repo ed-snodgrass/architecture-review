@@ -4,19 +4,24 @@ description: Implement the student's current homework iteration yourself, withou
 ---
 Implement the current homework iteration.
 
-Work from the factory's folder: `tetris/.factory` through iteration 003, and `factory/` from 004 on (fetch-iteration moves it there). Paths in the repository below are from its root. The spec is in `spec/`, the student's progress in `ITERATION`, and the seeds in `tetris/seeds/`. The factory builds the game in `tetris/`: the folder around it through 003, and a target beside it from 004, holding its assembly lines and their machines in `tetris/.assembly-lines/`.
+Open the agent at the repository root. The factory source, `spec/` and `ITERATION` live in `factory/` for every iteration. Run factory development commands from `factory/`, and the factory CLI from the repository root through `bin/factory`. Paths below are relative to `factory/` unless stated otherwise. The spec is in `spec/`, the student's progress in `ITERATION`, and the seed at `tetris/spec.md` relative to the repository root. The factory builds the game in the folder passed with `--target`, such as `tetris/tetris1/` or `tetris/tetris2/` (from the repository root). The current feature specs define target behavior and where plans and other state live.
 
 Follow this process exactly:
 
 1. Read `ITERATION`. If it is missing or says `Done`, follow the fetch-iteration skill first. Carry on here once it has committed the adoption.
-2. Read the whole spec: `spec/README.md`, `spec/FACTORY.md`, `spec/features/` and the seeds in `tetris/seeds/`.
+2. Read the whole spec: `spec/README.md`, `spec/FACTORY.md`, `spec/features/` and the seed at `tetris/spec.md` relative to the repository root.
 3. If the spec is unclear, stop and ask before editing.
 4. Check the working tree and avoid touching unrelated student changes.
-5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. `AGENTS.md` says how to run the suite.
+5. If there is no factory project yet — no Gherkin runner set up in this folder — follow the set-up-factory skill first. For later iterations, keep using what the student already chose. The repository-root `AGENTS.md` says how to run the suite.
 6. Implement only this iteration, driven by the suite, leaving out the `@real-agent` examples. Do not start any later iteration. Until the suite passes: take the first example that fails or has undefined steps, define its missing steps (true to their words, reusing what exists), then make the smallest factory change that makes it pass.
 7. From the repository root, verify the public CLI through the exact `bin/factory` entry point before presenting any CLI command as runnable. Run the README's command when it is safe. If a full run would contact a real agent, do not run it; use a non-destructive invocation that reaches the language CLI and proves launcher resolution and argument parsing, and explicitly say in the final summary that the real-agent command was not run. Checking the symlink, file existence or executable bits alone is not enough.
-8. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
-9. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
+8. Once the suite passes, check the iteration description in `spec/README.md` for optional follow-up work before marking the iteration Done:
+   - Look for the exact heading `## Once your suite passes`. If present, offer to work through that section, including creating an HTML comparison report when the README suggests one. This heading is a shared contract with the tutorial repository; course content stays in the README.
+   - If the description includes a bonus round, show the student its goal and tasks, and ask whether they would like to try it. Use the README's bonus round rather than inventing one.
+   - For each offer, wait for the student's answer. If they accept, work through the course's tasks with them; if they decline, skip that activity. If neither section is present, continue directly. Skipping optional work does not prevent marking the iteration Done.
+9. Change `ITERATION` from `<iteration> WIP` to `<iteration> Done`.
+10. Commit the implementation, the step definitions and that change with message `Implement homework <iteration>`.
+11. Encourage the student to take a look around their factory's codebase. Offer to answer any questions about it, and ask whether there is any refactoring they would like to do.
 
 Rules:
 
