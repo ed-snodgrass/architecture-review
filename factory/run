@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+factory_dir=$(dirname -- "$(readlink -f -- "$0")")
+exec "$factory_dir/node_modules/.bin/tsx" "$factory_dir/cli.ts" "$@"

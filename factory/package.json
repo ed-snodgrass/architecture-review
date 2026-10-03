@@ -1,0 +1,21 @@
+{
+  "name": "factory",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "cucumber-js",
+    "test:real": "cucumber-js --profile real",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.2.1",
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}
