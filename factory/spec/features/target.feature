@@ -12,7 +12,9 @@ Feature: Choosing where to build
     And a new target
     And a seed describing a game of Tetris
     And the factory has staged and unstaged changes
-    And the agent plans the tasks alpha and beta, and does one task a pass
+    And the planner plans the tasks alpha and beta
+    And the doer does the next task in the plan
+    And the validator is always satisfied
 
   Rule: A target must be chosen explicitly
 
