@@ -122,10 +122,16 @@ Given('the seed has been deleted', function () {
 
 Given('no harness is chosen', function() {
   this.harness = undefined;
+  this.doerHarness = undefined;
+  this.validatorHarness = undefined;
 });
 
 Given('the agent cannot be run', function () {
   this.harness = join(this.workspace, 'missing-agent');
+});
+
+Given('the doer cannot be run', function () {
+  this.doerHarness = join(this.workspace, 'missing-doer');
 });
 
 Given('no plan', function () {
@@ -171,8 +177,8 @@ Given('a plan in which every task is done', function () {
   }).trim();
 });
 
-Given('the agent says {string} before its result', function (message: string) {
-  this.env.FACTORY_TEST_PREAMBLE = message;
+Given('the validator says {string} before its result', function (message: string) {
+  this.env.FACTORY_TEST_VALIDATOR_PREAMBLE = message;
 });
 
 Then(
@@ -255,6 +261,16 @@ Then('it reports that it could not run the agent', function () {
   assert.match(output, /could not run the agent/i);
 });
 
+Then('it reports that it could not run the doer', function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /could not run the doer/i);
+});
+
+Then('it reports that the pass hit its limit', function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /pass hit its limit/i);
+});
+
 Then("it reports that it could not read the agent's result", function () {
   const output = this.result.stdout + this.result.stderr;
   assert.match(output, /could not read the agent's result/i);
@@ -268,6 +284,11 @@ Then('it reports that there is no seed', function () {
 Then('it reports that a target is required', function () {
   const output = this.result.stdout + this.result.stderr;
   assert.match(output, /target is required/i);
+});
+
+Then("it reports that it could not read the validator's result", function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /could not read the validator's result/i);
 });
 
 Then('no agent has been called', function () {
@@ -356,6 +377,155 @@ Then('its only product file is SENTINEL', function () {
   assert.deepEqual(files, ['SENTINEL']);
 });
 
+Given('the planner plans the tasks alpha and beta', function () {
+  const agentBin = join(this.workspace, 'agents');
+  mkdirSync(agentBin);
+
+  const script = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+
+const name = path.basename(process.argv[1]);
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.writeFileSync(
+  path.join(workspace, name + '-called'),
+  JSON.stringify(process.argv.slice(2))
+);
+fs.appendFileSync(path.join(workspace, 'agent-calls'), name + '\n');
+
+const plan = '.factory/plan.md';
+const prompt = process.argv.slice(2).join('\n');
+fs.mkdirSync('.factory', { recursive: true });
+
+if (process.env.FACTORY_TEST_PLANNER_PROSE === '1') {
+  if (!fs.existsSync(plan)) {
+    fs.writeFileSync(plan, 'First do alpha, then do beta.');
+  } else if (prompt.includes('Mark the current task done')) {
+    const text = fs.readFileSync(plan, 'utf8');
+    fs.writeFileSync(
+      plan,
+      text === 'First do alpha, then do beta.'
+        ? 'Alpha is finished. Next do beta.'
+        : 'Both tasks are finished.',
+    );
+  }
+
+  const text = fs.readFileSync(plan, 'utf8');
+  console.log(JSON.stringify({
+    complete: text === 'Both tasks are finished.',
+  }));
+  process.exit(0);
+}
+
+if (!fs.existsSync(plan)) {
+  fs.writeFileSync(plan, '- [ ] alpha\n- [ ] beta\n');
+}
+
+let text = fs.readFileSync(plan, 'utf8');
+if (prompt.includes('Mark the current task done')) {
+  text = text.replace(/^- \[ \] (.+)$/m, '- [x] $1');
+  fs.writeFileSync(plan, text);
+}
+
+console.log(JSON.stringify({ complete: !text.includes('- [ ]') }));
+`;
+
+  for (const name of ['pi', 'fake-agent']) {
+    writeFileSync(join(agentBin, name), script, { mode: 0o755 });
+  }
+
+  this.harness = 'fake-agent';
+  this.env = {
+    ...process.env,
+    PATH: agentBin + ':' + process.env.PATH,
+    FACTORY_TEST_WORKSPACE: this.workspace,
+  };
+});
+
+Given('the doer does the next task in the plan', function () {
+  this.doerHarness = join(this.workspace, 'agents', 'fake-doer');
+
+  const script = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
+fs.appendFileSync(path.join(workspace, 'doer-calls'), 'called\n');
+fs.writeFileSync(
+  path.join(workspace, 'doer-args'),
+  JSON.stringify(process.argv.slice(2))
+);
+
+const plan = fs.readFileSync('.factory/plan.md', 'utf8');
+
+let task;
+if (process.env.FACTORY_TEST_DOER_PROSE === '1') {
+  task = plan === 'First do alpha, then do beta.'
+    ? 'alpha'
+    : plan === 'Alpha is finished. Next do beta.' ? 'beta' : undefined;
+} else {
+  task = plan.match(/^- \[ \] (.+)$/m)?.[1];
+}
+
+if (task) {
+  const productFile = process.env.FACTORY_TEST_PRODUCT_FILE || task + '.txt';
+  fs.writeFileSync(productFile, task + '\n');
+  console.log(JSON.stringify({ task }));
+}
+`;
+
+  writeFileSync(this.doerHarness, script, { mode: 0o755 });
+});
+
+Given('the validator is always satisfied', function () {
+  this.validatorHarness = join(this.workspace, 'agents', 'fake-validator');
+
+  const script = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-validator\n');
+fs.appendFileSync(path.join(workspace, 'validator-calls'), 'called\n');
+fs.writeFileSync(
+  path.join(workspace, 'validator-args'),
+  JSON.stringify(process.argv.slice(2))
+);
+if (process.env.FACTORY_TEST_VALIDATOR_PREAMBLE) {
+  console.log(process.env.FACTORY_TEST_VALIDATOR_PREAMBLE);
+}
+const callCount = fs.readFileSync(
+  path.join(workspace, 'validator-calls'),
+  'utf8',
+).trim().split('\n').length;
+
+if (process.env.FACTORY_TEST_VALIDATOR_PROSE_ONLY === '1') {
+  console.log('The work needs another look.');
+  process.exit(0);
+}
+
+const rejectFirst =
+  process.env.FACTORY_TEST_REJECT_FIRST === '1' && callCount === 1;
+const satisfied =
+  process.env.FACTORY_TEST_REJECT_ALWAYS !== '1' && !rejectFirst;
+console.log(JSON.stringify({
+  satisfied,
+  findings: satisfied ? [] : ['The task mixes unrelated responsibilities.'],
+}));
+`;
+
+  writeFileSync(this.validatorHarness, script, { mode: 0o755 });
+});
+
+Given('the validator is never satisfied', function () {
+  this.env.FACTORY_TEST_REJECT_ALWAYS = '1';
+});
+
+Given('the validator is not satisfied the first time', function () {
+  this.env.FACTORY_TEST_REJECT_FIRST = '1';
+});
+
 Given('the agent plans the tasks alpha and beta, and does one task a pass', function() {
   const agentBin = join(this.workspace, 'agents');
   mkdirSync(agentBin);
@@ -439,16 +609,32 @@ if (!fs.existsSync(plan)) {
   }
 });
 
-Given('the agent keeps its plan in prose', function () {
-  this.env.FACTORY_TEST_PROSE_PLAN = '1';
+Given('the doer keeps its plan in prose', function () {
+  this.env.FACTORY_TEST_DOER_PROSE = '1';
 });
 
-Given('the agent writes a file called SENTINEL', function () {
+Given('the planner keeps its plan in prose', function () {
+  this.env.FACTORY_TEST_PLANNER_PROSE = '1';
+});
+
+Given('the doer writes a file called SENTINEL', function () {
   this.env.FACTORY_TEST_PRODUCT_FILE = 'SENTINEL';
 });
 
 Given('the agent answers in prose, with no result', function () {
   this.env.FACTORY_TEST_PROSE_ONLY = '1';
+});
+
+Given('the validator answers in prose, with no result', function () {
+  this.env.FACTORY_TEST_VALIDATOR_PROSE_ONLY = '1';
+});
+
+Given('the factory allows at most three attempts per pass', function () {
+  this.maxAttempts = 3;
+});
+
+Given("the validator's lens is {word}", function (lens: string) {
+  this.validatorLens = lens;
 });
 
 function runFactory(this: IWorld, mode: string) {
@@ -468,6 +654,22 @@ function runFactory(this: IWorld, mode: string) {
 
   if (this.harness !== undefined) {
     args.push('--harness', this.harness);
+  }
+
+  if (this.doerHarness !== undefined) {
+    args.push('--doer-harness', this.doerHarness);
+  }
+
+  if (this.validatorHarness !== undefined) {
+    args.push('--validator-harness', this.validatorHarness);
+  }
+
+  if (this.validatorLens !== undefined) {
+    args.push('--validator-lens', this.validatorLens);
+  }
+
+  if (this.maxAttempts !== undefined) {
+    args.push('--max-attempts', String(this.maxAttempts));
   }
 
   this.result = spawnSync('bash', args, {
@@ -574,6 +776,13 @@ Then('the chosen agent has been called', function() {
   );
 });
 
+Then("the doer's chosen harness has been called", function () {
+  assert.ok(
+    existsSync(join(this.workspace, 'doer-calls')),
+    'Expected the factory to call the chosen doer',
+  );
+});
+
 Then('pi has not been called', function() {
   assert.equal(
     existsSync(join(this.workspace, 'pi-called')),
@@ -582,9 +791,9 @@ Then('pi has not been called', function() {
   );
 });
 
-Then('the agent was pointed at the plan and at the seed', function () {
+Then('the doer was pointed at the plan and at the seed', function () {
   const args: string[] = JSON.parse(readFileSync(
-    join(this.workspace, this.harness + '-called'),
+    join(this.workspace, 'doer-args'),
     'utf8',
   ));
   const prompt = args.join('\n');
@@ -596,7 +805,7 @@ Then('the agent was pointed at the plan and at the seed', function () {
   );
 });
 
-Then('the agent was asked for a result with the field "complete"', function () {
+Then('the planner was asked for a result with the field "complete"', function () {
   const args: string[] = JSON.parse(readFileSync(
     join(this.workspace, this.harness + '-called'),
     'utf8',
@@ -607,6 +816,51 @@ Then('the agent was asked for a result with the field "complete"', function () {
   assert.match(prompt, /\bcomplete\b/);
 });
 
+Then('the validator was given {string}', function (lens: string) {
+  const args: string[] = JSON.parse(readFileSync(
+    join(this.workspace, 'validator-args'),
+    'utf8',
+  ));
+  const prompt = args.join('\n');
+
+  assert.match(prompt, new RegExp(`\\b${lens}\\b`, 'i'));
+});
+
+Then('the validator was given the work for the second task', function () {
+  const args: string[] = JSON.parse(readFileSync(
+    join(this.workspace, 'validator-args'),
+    'utf8',
+  ));
+  const prompt = args.join('\n');
+
+  assert.match(prompt, /\bbeta\.txt\b/);
+});
+
+Then('it was not given the work for the first task', function () {
+  const args: string[] = JSON.parse(readFileSync(
+    join(this.workspace, 'validator-args'),
+    'utf8',
+  ));
+  const prompt = args.join('\n');
+
+  assert.doesNotMatch(prompt, /\balpha\.txt\b/);
+});
+
+Then(
+  'the validator was asked for a result with the fields "satisfied" and "findings"',
+  function () {
+    const args: string[] = JSON.parse(readFileSync(
+      join(this.workspace, 'validator-args'),
+      'utf8',
+    ));
+    const prompt = args.join('\n');
+
+    assert.match(prompt, /JSON/i);
+    assert.match(prompt, /\bsatisfied\b/);
+    assert.match(prompt, /\bfindings\b/);
+  },
+);
+
 Then('the agent has been called once', function () {
   const calls = readFileSync(
     join(this.workspace, 'agent-calls'),
@@ -614,6 +868,37 @@ Then('the agent has been called once', function () {
   ).trim().split('\n');
 
   assert.equal(calls.length, 1);
+});
+
+Then(
+  /^the doer has been called (once|twice|three times)$/,
+  function (count: string) {
+    const calls = readFileSync(
+      join(this.workspace, 'doer-calls'),
+      'utf8',
+    ).trim().split('\n');
+
+    const expected = count === 'once' ? 1 : count === 'twice' ? 2 : 3;
+    assert.equal(calls.length, expected);
+  },
+);
+
+Then('the doer has not been called', function () {
+  assert.equal(
+    existsSync(join(this.workspace, 'doer-calls')),
+    false,
+    'Expected no doer calls',
+  );
+});
+
+Then("the doer was given the validator's findings", function () {
+  const args: string[] = JSON.parse(readFileSync(
+    join(this.workspace, 'doer-args'),
+    'utf8',
+  ));
+  const prompt = args.join('\n');
+
+  assert.match(prompt, /mixes unrelated responsibilities/i);
 });
 
 Then('the plan shows the first task as done', function () {

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tetris generation comparison</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #eef4e8;
+      --muted: #aebaa8;
+      --panel: #18231d;
+      --line: #34463a;
+      --accent: #b7ef59;
+      --accent-2: #67d8c2;
+      --warning: #ffd37a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 85% 0%, #24472f 0, transparent 32rem),
+        linear-gradient(135deg, #0b100d, #111a15 55%, #0b100d);
+      font: 16px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 80px; }
+    header { max-width: 830px; margin-bottom: 42px; }
+    .eyebrow { color: var(--accent); font-size: .78rem; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 10px 0 16px; font: 700 clamp(2.3rem, 7vw, 5.7rem)/.94 system-ui, sans-serif; letter-spacing: -.055em; }
+    h2 { margin: 0 0 14px; font: 700 1.3rem/1.25 system-ui, sans-serif; }
+    h3 { margin: 0 0 8px; color: var(--accent-2); font-size: .95rem; }
+    p { margin: 0 0 12px; }
+    .lede { max-width: 720px; color: var(--muted); font: 1.08rem/1.7 system-ui, sans-serif; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; margin: 16px 0; }
+    .card { grid-column: span 6; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 92%, transparent); }
+    .wide { grid-column: 1 / -1; }
+    .metric { font: 750 2.2rem/1 system-ui, sans-serif; color: var(--accent); }
+    .label { margin-top: 7px; color: var(--muted); font-size: .84rem; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: .76rem; letter-spacing: .08em; text-transform: uppercase; }
+    code { color: var(--accent-2); }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li + li { margin-top: 7px; }
+    .finding { border-left: 4px solid var(--warning); }
+    .finding strong { color: var(--warning); }
+    .tag { display: inline-block; margin: 3px 4px 3px 0; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .78rem; }
+    footer { margin-top: 34px; color: var(--muted); font-size: .8rem; }
+    @media (max-width: 760px) {
+      main { padding-top: 38px; }
+      .card { grid-column: 1 / -1; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      table { font-size: .86rem; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Factory homework 002 · comparison report</div>
+    <h1>Two builds.<br>One seed.</h1>
+    <p class="lede">Both generations implement dependency-free terminal Tetris within the 24-row limit. Generation 002 uses the validator lens <strong>single responsibility</strong>. This report distinguishes recorded validation evidence from ordinary variation between two agent-built implementations.</p>
+  </header>
+
+  <section class="grid">
+    <article class="card finding wide">
+      <h2>Validation evidence</h2>
+      <p><strong>No validator findings were recorded</strong> in <code>tetris-002/.factory/plan.md</code>. The plan contains no finding subtasks or retry notes.</p>
+      <p>Therefore, none of the code differences below can be attributed directly to validation. Some v2 choices align with the single-responsibility lens, but the available record does not establish that validation caused them.</p>
+    </article>
+
+    <article class="card wide">
+      <h2>Measured result</h2>
+      <div class="metrics">
+        <div><div class="metric">18</div><div class="label">v1 passing tests</div></div>
+        <div><div class="metric">10</div><div class="label">v2 passing tests</div></div>
+        <div><div class="metric">245</div><div class="label">v1 source lines</div></div>
+        <div><div class="metric">325</div><div class="label">v2 source lines</div></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Generation 001</h2>
+      <p><span class="tag">18 tests</span><span class="tag">22 rows</span><span class="tag">48 columns minimum</span></p>
+      <ul>
+        <li><code>engine.js</code> owns game state and rules.</li>
+        <li><code>terminal.js</code> combines rendering, input, timers, pause behavior, and terminal cleanup.</li>
+        <li><code>index.js</code> is a three-line entry point.</li>
+        <li>Includes pause/resume with <code>P</code>.</li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h2>Generation 002</h2>
+      <p><span class="tag">10 tests</span><span class="tag">22 rows</span><span class="tag">56 columns minimum</span></p>
+      <ul>
+        <li><code>engine.js</code> remains independent from terminal concerns.</li>
+        <li><code>display.js</code> isolates board and status rendering.</li>
+        <li><code>cli.js</code> owns input, timing, terminal lifecycle, and orchestration.</li>
+        <li>Adds A/D/W/S, counter-clockwise rotation with <code>Z</code>, and quit with Escape.</li>
+      </ul>
+    </article>
+
+    <article class="card wide">
+      <h2>Side-by-side</h2>
+      <table>
+        <thead><tr><th>Area</th><th>Generation 001</th><th>Generation 002</th><th>Assessment</th></tr></thead>
+        <tbody>
+          <tr><td>Architecture</td><td>Engine + combined terminal module</td><td>Engine + display + CLI modules</td><td>V2 has a clearer rendering boundary, consistent with single responsibility.</td></tr>
+          <tr><td>Engine API</td><td>Fixed 10×20 dimensions; <code>Game</code>; <code>frame()</code></td><td>Configurable dimensions; <code>Tetris</code>; <code>visibleBoard()</code></td><td>V2 is more configurable and explicit about render-safe state.</td></tr>
+          <tr><td>Controls</td><td>Arrow keys, Space, P, R, Q</td><td>Arrow/WASD alternatives, Z, Space, R, Q/Escape</td><td>V2 offers more input choices; v1 uniquely includes pause.</td></tr>
+          <tr><td>Test suite</td><td>18 tests across engine, startup, and terminal behavior</td><td>10 tests across engine and display/startup behavior</td><td>Both pass. Test counts are not directly comparable because cases are grouped differently.</td></tr>
+          <tr><td>Terminal budget</td><td>22 rows, 48-column minimum</td><td>22 rows, 56-column minimum</td><td>Both satisfy the seed’s 24-row requirement; v1 supports a narrower terminal.</td></tr>
+          <tr><td>Dependencies</td><td>None</td><td>None</td><td>Equivalent.</td></tr>
+        </tbody>
+      </table>
+    </article>
+
+    <article class="card wide">
+      <h2>What changed, and why?</h2>
+      <p>The strongest single-responsibility improvement in v2 is the dedicated <code>display.js</code> module. It keeps rendering separate from keyboard handling and timer management. V2’s engine also documents itself as pure state and returns a copied visible board, reinforcing the engine/render boundary.</p>
+      <p>V1 has broader automated terminal coverage and a narrower minimum width. V2 provides richer controls and a more configurable engine. Because the v2 plan contains no recorded findings, these differences should be treated as normal generation variance rather than demonstrated effects of validation.</p>
+    </article>
+  </section>
+
+  <footer>Generated from both source trees, README files, factory plans, and successful local test runs on 6 October 2026.</footer>
+</main>
+</body>
+</html>
