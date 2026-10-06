@@ -1,0 +1,14 @@
+{
+  "name": "terminal-tetris",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A terminal Tetris game that fits in 24 rows",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
