@@ -1,0 +1,8 @@
+digraph assembly_line {
+  start -> planner
+  planner -> doer      [label="not complete"]
+  planner -> finish    [label="complete"]
+  doer -> validator
+  validator -> doer    [label="not satisfied"]
+  validator -> planner [label="satisfied"]
+}

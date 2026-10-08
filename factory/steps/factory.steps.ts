@@ -1,13 +1,18 @@
 import { After, Given, When, Then, IWorld } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import { exec, execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 Given('a new target', function() {
   this.target = join(this.workspace, 'target');
   mkdirSync(this.target);
+});
+
+Given('this assembly line:', function (line: string) {
+  this.assemblyLine = line;
+  writeFileSync(join(this.workspace, 'assembly-line.dot'), line);
 });
 
 Given('the target folder does not exist', function () {
@@ -48,6 +53,10 @@ Given('a copy of the factory', function () {
 
   for (const file of ['cli.ts', 'run', 'package.json']) {
     copyFileSync(resolve(file), join(this.workspace, file));
+  }
+  copyFileSync(resolve('assembly-line.dot'), join(this.workspace, 'assembly-line.dot'));
+  for (const machine of ['planner', 'doer', 'validator']) {
+    cpSync(resolve(machine), join(this.workspace, machine), { recursive: true });
   }
 
   symlinkSync(resolve('node_modules'), join(this.workspace, 'node_modules'));
@@ -309,7 +318,7 @@ Then('there are no new commits', function () {
 });
 
 Then(
-  /^there (?:is|are) (no|one|three) new work commits?$/,
+  /^there (?:is|are) (no|one|two|three) new work commits?$/,
   function (count: string) {
   const output = execFileSync('git', [
     'log',
@@ -324,7 +333,7 @@ Then(
   });
 
   const commits = output.trim().split('\n').filter(Boolean);
-  const expected = count === 'no' ? 0 : count === 'one' ? 1 : 3;
+  const expected = count === 'no' ? 0 : count === 'one' ? 1 : count === 'two' ? 2 : 3;
   assert.equal(commits.length, expected, `Expected ${expected} new work commits`);
   this.workCommit = commits[0];
 });
@@ -452,10 +461,8 @@ const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
 fs.appendFileSync(path.join(workspace, 'doer-calls'), 'called\n');
-fs.writeFileSync(
-  path.join(workspace, 'doer-args'),
-  JSON.stringify(process.argv.slice(2))
-);
+fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
+fs.appendFileSync(path.join(workspace, 'doer-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 
 const plan = fs.readFileSync('.factory/plan.md', 'utf8');
 
@@ -488,10 +495,8 @@ const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-validator\n');
 fs.appendFileSync(path.join(workspace, 'validator-calls'), 'called\n');
-fs.writeFileSync(
-  path.join(workspace, 'validator-args'),
-  JSON.stringify(process.argv.slice(2))
-);
+const validatorArgs = path.join(workspace, 'validator-args');
+if (!fs.existsSync(validatorArgs)) fs.writeFileSync(validatorArgs, JSON.stringify(process.argv.slice(2)));
 if (process.env.FACTORY_TEST_VALIDATOR_PREAMBLE) {
   console.log(process.env.FACTORY_TEST_VALIDATOR_PREAMBLE);
 }
@@ -681,6 +686,18 @@ function runFactory(this: IWorld, mode: string) {
   });
 }
 
+When('the factory runs', function () {
+  runFactory.call(this, 'to completion');
+});
+
+When('the factory reads the assembly line', function () {
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), '--check-assembly-line'], {
+    cwd: this.workspace,
+    env: this.env ?? process.env,
+    encoding: 'utf8',
+  });
+});
+
 When(/^the factory runs (one pass|to completion)$/, runFactory);
 
 When('the factory builds the target {string} to completion', function (name: string) {
@@ -846,21 +863,6 @@ Then('it was not given the work for the first task', function () {
   assert.doesNotMatch(prompt, /\balpha\.txt\b/);
 });
 
-Then(
-  'the validator was asked for a result with the fields "satisfied" and "findings"',
-  function () {
-    const args: string[] = JSON.parse(readFileSync(
-      join(this.workspace, 'validator-args'),
-      'utf8',
-    ));
-    const prompt = args.join('\n');
-
-    assert.match(prompt, /JSON/i);
-    assert.match(prompt, /\bsatisfied\b/);
-    assert.match(prompt, /\bfindings\b/);
-  },
-);
-
 Then('the agent has been called once', function () {
   const calls = readFileSync(
     join(this.workspace, 'agent-calls'),
@@ -871,14 +873,14 @@ Then('the agent has been called once', function () {
 });
 
 Then(
-  /^the doer has been called (once|twice|three times)$/,
+  /^the doer has been called (once|twice|three times|four times)$/,
   function (count: string) {
     const calls = readFileSync(
       join(this.workspace, 'doer-calls'),
       'utf8',
     ).trim().split('\n');
 
-    const expected = count === 'once' ? 1 : count === 'twice' ? 2 : 3;
+    const expected = count === 'once' ? 1 : count === 'twice' ? 2 : count === 'three times' ? 3 : 4;
     assert.equal(calls.length, expected);
   },
 );
@@ -892,11 +894,7 @@ Then('the doer has not been called', function () {
 });
 
 Then("the doer was given the validator's findings", function () {
-  const args: string[] = JSON.parse(readFileSync(
-    join(this.workspace, 'doer-args'),
-    'utf8',
-  ));
-  const prompt = args.join('\n');
+  const prompt = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8');
 
   assert.match(prompt, /mixes unrelated responsibilities/i);
 });
@@ -951,6 +949,92 @@ Then(
     );
   },
 );
+
+Then('it accepts it', function () {
+  assert.equal(this.result.status, 0, this.result.stderr);
+});
+
+Then('it refuses it', function () {
+  assert.notEqual(this.result.status, 0);
+});
+
+Given('the validator has been taken out, so the doer goes straight to the planner', function () {
+  const file = join(this.workspace, 'assembly-line.dot');
+  const line = readFileSync(file, 'utf8')
+    .replace(/^\s*doer -> validator.*$/m, '  doer -> planner')
+    .replace(/^\s*validator -> .*$(?:\n)?/gm, '');
+  writeFileSync(file, line);
+});
+
+Given('{string} is misspelt {string} throughout the assembly line', function (from: string, to: string) {
+  const file = join(this.workspace, 'assembly-line.dot');
+  writeFileSync(file, readFileSync(file, 'utf8').replaceAll(from, to));
+});
+
+Given('the edge from validator to planner has been taken out', function () {
+  const file = join(this.workspace, 'assembly-line.dot');
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/^\s*validator -> planner.*$(?:\n)?/m, ''));
+});
+
+Then('it reports that it has no machine called {string}', function (name: string) {
+  assert.match(this.result.stdout + this.result.stderr, new RegExp(`no machine called ["']?${name}`, 'i'));
+});
+
+Then('it reports that finish cannot be reached from validator', function () {
+  assert.match(this.result.stdout + this.result.stderr, /finish cannot be reached from validator/i);
+});
+
+Given('no harness is chosen for the validator', function () {
+  this.validatorHarness = undefined;
+});
+
+Given('the factory allows at most three attempts at a task', function () {
+  this.maxAttempts = 3;
+});
+
+Given('the edges from validator are labelled {string} and {string}', function (positive: string, negative: string) {
+  const file = join(this.workspace, 'assembly-line.dot');
+  let line = readFileSync(file, 'utf8');
+  line = line.replace('label="not satisfied"', `label="${negative}"`)
+    .replace('label="satisfied"', `label="${positive}"`);
+  writeFileSync(file, line);
+});
+
+Then('the validator was asked for a result with the fields {string} and {string}', function (field: string, other: string) {
+  const prompt = JSON.parse(readFileSync(join(this.workspace, 'validator-args'), 'utf8')).join('\n');
+  assert.match(prompt, new RegExp(`\\b${field}\\b`));
+  assert.match(prompt, new RegExp(`\\b${other}\\b`));
+});
+
+Then('the validator has not been called', function () {
+  assert.equal(existsSync(join(this.workspace, 'validator-calls')), false);
+});
+
+Then('it reports that a task hit its limit', function () {
+  assert.match(this.result.stdout + this.result.stderr, /task hit its limit/i);
+});
+
+Then('each new work commit contains the work for one task', function () {
+  const commits = execFileSync('git', ['log', '--format=%H', this.initialCommit + '..HEAD', '--', '.', ':(exclude).factory'], { cwd: this.target, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+  for (const commit of commits) {
+    const files = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', commit, '--', '.', ':(exclude).factory'], { cwd: this.target, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    assert.equal(files.length, 1);
+  }
+});
+
+Then('no new commit contains the work for the first task', function () {
+  const files = execFileSync('git', ['log', '--name-only', '--format=', this.initialCommit + '..HEAD'], { cwd: this.target, encoding: 'utf8' });
+  assert.doesNotMatch(files, /(^|\/)alpha\.txt$/m);
+});
+
+Then('it reports that the result of validator has no field {string}', function (field: string) {
+  assert.match(this.result.stdout + this.result.stderr, new RegExp(`result of validator has no field ["']${field}`, 'i'));
+});
+
+Then('the planner was called before the doer', function () {
+  const calls = readFileSync(join(this.workspace, 'agent-calls'), 'utf8').trim().split('\n');
+  assert.ok(calls.indexOf(this.harness) < calls.indexOf('fake-doer'));
+});
 
 After(function () {
   if (this.workspace) {

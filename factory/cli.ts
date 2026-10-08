@@ -1,213 +1,119 @@
-import { existsSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
+type Edge = { from: string; to: string; label?: string };
+type Outcome = Record<string, unknown>;
+type Config = { harness?: string; lens?: string };
 const args = process.argv.slice(2);
-if (!args.includes('--target')) {
-  console.error('A target is required');
-  process.exit(1);
+const factory = dirname(resolve(process.argv[1]));
+const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+function fail(message: string): never { console.error(message); process.exit(1); }
+
+function config(name: string): Config | undefined {
+  const file = resolve(factory, name, 'machine.json');
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Config : undefined;
 }
-const target = args[args.indexOf('--target') + 1];
-const harness = args.includes('--harness')
-  ? args[args.indexOf('--harness') + 1]
-  : 'pi';
+const line = readFileSync(resolve(factory, 'assembly-line.dot'), 'utf8');
+const edges: Edge[] = [...line.matchAll(/\b([A-Za-z][\w-]*)\s*->\s*([A-Za-z][\w-]*)(?:\s*\[\s*label\s*=\s*"([^"]+)"\s*\])?/g)]
+  .map(m => ({ from: m[1], to: m[2], label: m[3] }));
 
-const doerHarness = args.includes('--doer-harness')
-  ? args[args.indexOf('--doer-harness') + 1]
-  : harness;
-
-const validatorHarness = args.includes('--validator-harness')
-  ? args[args.indexOf('--validator-harness') + 1]
-  : harness;
-
-const validatorLens = args.includes('--validator-lens')
-  ? args[args.indexOf('--validator-lens') + 1]
-  : 'single responsibility';
-
-const maxAttempts = args.includes('--max-attempts')
-  ? Number(args[args.indexOf('--max-attempts') + 1])
-  : 3;
-
-if (!args.includes('--seed')) {
-    console.error('No seed');
-    process.exit(1);
+for (const name of new Set(edges.flatMap(e => [e.from, e.to]))) {
+  if (!['start', 'finish'].includes(name) && !config(name)) fail(`The factory has no machine called "${name}"`);
 }
-
-const seed = resolve(args[args.indexOf('--seed') + 1]);
-if (!existsSync(seed)) {
-  console.error('No seed');
-  process.exit(1);
+function reachesFinish(node: string, seen = new Set<string>()): boolean {
+  if (node === 'finish') return true;
+  if (seen.has(node)) return false;
+  seen.add(node);
+  return edges.some(e => e.from === node && reachesFinish(e.to, new Set(seen)));
 }
-
-mkdirSync(target, {recursive: true });
-
-const repository = spawnSync('git', ['rev-parse', '--show-toplevel'], {
-  cwd: target,
-  encoding: 'utf8',
-});
-
-if (repository.status !== 0) {
-  execFileSync('git', ['init'], { cwd: target });
+for (const name of [...new Set(edges.map(e => e.from))].reverse()) {
+  if (!reachesFinish(name)) fail(`finish cannot be reached from ${name}`);
 }
+if (args.includes('--check-assembly-line')) { console.log('Assembly line accepted'); process.exit(0); }
 
+const targetArg = option('--target');
+if (!targetArg) fail('A target is required');
+const seedArg = option('--seed');
+if (!seedArg) fail('No seed');
+const seed = resolve(seedArg);
+if (!existsSync(seed)) fail('No seed');
+const target = resolve(targetArg);
 const plan = resolve(target, '.factory', 'plan.md');
-const prompt = `Read the seed at ${JSON.stringify(seed)}
-If no plan exists at ${JSON.stringify(plan)}, write one there.
-Otherwise, do the first unfinished task and mark it done in the plan.
-Finish with a single line of JSON containing "complete": true when no
-unfinished taks remain, or "complete": false otherwise.
-If you performed a task, include its name in the "task" field.`;
+const maxAttempts = Number(option('--max-attempts') ?? 3);
+mkdirSync(target, { recursive: true });
+if (spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: target }).status !== 0) execFileSync('git', ['init'], { cwd: target });
 
-function readResult(output: string) {
-  for (const line of output.trim().split('\n').reverse()) {
-    try {
-      return JSON.parse(line);
-    } catch {
-      // Keep looking for the last JSON line.
-    }
+function machineConfig(name: string): Required<Pick<Config, 'harness'>> & Config {
+  const stored = config(name)!;
+  const oldHarness = option(`--${name}-harness`) ?? (name === 'planner' ? option('--harness') : undefined);
+  const oldLens = name === 'validator' ? option('--validator-lens') : undefined;
+  return { ...stored, harness: oldHarness ?? stored.harness ?? 'pi', lens: oldLens ?? stored.lens };
+}
+function parseResult(output: string): Outcome | undefined {
+  for (const text of output.trim().split('\n').reverse()) { try { return JSON.parse(text) as Outcome; } catch {} }
+}
+function fields(name: string): string[] {
+  return [...new Set(edges.filter(e => e.from === name && e.label).map(e => e.label!.replace(/^not /, '')))];
+}
+function route(name: string, result: Outcome): string {
+  const outgoing = edges.filter(e => e.from === name);
+  const direct = outgoing.find(e => !e.label);
+  if (direct) return direct.to;
+  for (const edge of outgoing) {
+    const negative = edge.label!.startsWith('not ');
+    const field = edge.label!.replace(/^not /, '');
+    if (!(field in result)) fail(`The result of ${name} has no field "${field}"`);
+    if (Boolean(result[field]) !== negative) return edge.to;
+  }
+  fail(`The result of ${name} did not select an edge`);
+}
+
+let findings: unknown;
+let completingTask = false;
+let attempts = 0;
+function prompt(name: string): string {
+  const wanted = fields(name);
+  const answer = wanted.length
+    ? `Finish with one JSON line containing ${wanted.map(f => `"${f}"`).join(' and ')}${name === 'validator' ? ' and "findings"' : ''}.`
+    : 'Finish with one JSON line describing the work.';
+  if (name === 'planner') return completingTask
+    ? `Read the plan at ${JSON.stringify(plan)}.\nThe current task's validated work has been committed.\nMark the current task done, and mark only that task. Inspect the updated plan. Set "complete" to false when any task remains unfinished, and true only when every task is finished.\n${answer}`
+    : `Read the seed at ${JSON.stringify(seed)}.\nIf no plan exists at ${JSON.stringify(plan)}, write one there.\nInspect the plan after any write. Set "complete" to false whenever the plan has any unfinished task, and true only when every task is finished. Do not perform a task.\n${answer}`;
+  if (name === 'doer') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done.${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
+  if (name === 'validator') {
+    const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).factory'], { cwd: target, encoding: 'utf8' });
+    return `Review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
+  }
+  return answer;
+}
+function run(name: string): Outcome {
+  const execution = spawnSync(machineConfig(name).harness, [prompt(name)], { cwd: target, encoding: 'utf8' });
+  if (execution.error) fail(`Could not run the ${name === 'planner' ? 'agent' : name}`);
+  process.stdout.write(execution.stdout);
+  return parseResult(execution.stdout) ?? fail(`Could not read the ${name === 'planner' ? "agent's" : `${name}'s`} result`);
+}
+function commit(paths: string[], message: string): void {
+  execFileSync('git', ['add', '--', ...paths], { cwd: target });
+  if (spawnSync('git', ['diff', '--cached', '--quiet', '--', ...paths], { cwd: target }).status === 1) {
+    execFileSync('git', ['commit', '--only', '-m', message, '--', ...paths], { cwd: target });
   }
 }
 
-while(true) {
-  const hadPlan = existsSync(plan);
-  const result = spawnSync(harness, [prompt], {
-    cwd: target,
-    encoding: 'utf8',
-  });
-
-  if (result.error) {
-    console.error('Could not run the agent');
-    process.exitCode = 1;
-    break;
+let machine = edges.find(e => e.from === 'start')?.to ?? fail('The assembly line has no start');
+while (machine !== 'finish') {
+  if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
+  const outcome = run(machine);
+  const next = route(machine, outcome);
+  if (machine === 'validator') findings = outcome.findings;
+  if ((machine === 'doer' || machine === 'validator') && next === 'planner') {
+    commit(['.', ':(exclude).factory'], 'Factory work');
+    completingTask = true; findings = undefined; attempts = 0;
+  } else if (machine === 'planner') {
+    if (completingTask) commit(['.factory/plan.md'], 'Update plan');
+    completingTask = false;
   }
-  process.stdout.write(result.stdout);
-
-  const outcome = readResult(result.stdout);
-
-  if (typeof outcome?.complete !== 'boolean') {
-    console.error("Could not read the agent's result");
-    process.exitCode = 1;
-    break;
-  }
-
-  if (hadPlan && !outcome.complete) {
-    let doerPrompt = `Read the seed at ${JSON.stringify(seed)}
-and the plan at ${JSON.stringify(plan)}.
-Implement the first unfinished task. Do not mark it done.
-Finish with a single line of JSON describing the task you performed.`;
-
-    let satisfied = false;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const doerResult = spawnSync(doerHarness, [doerPrompt], {
-        cwd: target,
-        encoding: 'utf8',
-      });
-
-      if (doerResult.error) {
-        console.error('Could not run the doer');
-        process.exit(1);
-      }
-
-      const work = execFileSync('git', [
-        'status',
-        '--porcelain',
-        '--untracked-files=all',
-        '--',
-        '.',
-        ':(exclude).factory',
-      ], {
-        cwd: target,
-        encoding: 'utf8',
-      });
-
-      const validatorPrompt = `Review the current task's work using
-${validatorLens} as your focus.
-Read the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.
-The current task's changed product files are:
-${work}
-Do not change any files.
-Finish with one JSON line containing "satisfied" (boolean)
-and "findings" (an array of problems).`;
-
-      const validation = spawnSync(validatorHarness, [validatorPrompt], {
-        cwd: target,
-        encoding: 'utf8',
-      });
-
-      if (validation.error) {
-        console.error('Could not run the validator');
-        process.exit(1);
-      }
-
-      const verdict = readResult(validation.stdout);
-      if (typeof verdict?.satisfied !== 'boolean') {
-        console.error("Could not read the validator's result");
-        process.exit(1);
-      }
-
-      if (verdict.satisfied) {
-        satisfied = true;
-        break;
-      }
-      doerPrompt = `Read the seed at ${JSON.stringify(seed)}
-and the plan at ${JSON.stringify(plan)}.
-The validator reported these findings:
-${JSON.stringify(verdict.findings)}
-Record each finding as a subtask of the current task, address it,
-and leave the task itself unfinished.
-Finish with a single line of JSON describing the task you performed.`;
-    }
-
-    if (!satisfied) {
-      console.error('The pass hit its limit');
-      process.exit(1);
-    }
-  }
-
-  execFileSync('git', ['add', '--', '.'], { cwd: target });
-  const changes = spawnSync(
-    'git',
-    ['diff', '--cached', '--quiet', '--', '.'],
-    { cwd: target },
-  );
-
-  if (changes.status === 1) {
-    execFileSync('git', [
-      'commit', '--only', '-m', 'Factory pass', '--', '.',
-    ], { cwd: target });
-  }
-
-  if (hadPlan && !outcome.complete) {
-    const plannerUpdate = spawnSync(harness, [
-    `Read the plan at ${JSON.stringify(plan)}.
-The current task's validated work has been committed.
-Mark the current task done.
-Finish with one JSON line containing "complete".`,
-    ], {
-      cwd: target,
-      encoding: 'utf8',
-    });
-
-    if (plannerUpdate.error) {
-      console.error('Could not run the planner');
-      process.exit(1);
-    }
-
-    const updatedOutcome = readResult(plannerUpdate.stdout);
-    if (typeof updatedOutcome?.complete !== 'boolean') {
-      console.error("Could not read the planner's result");
-      process.exit(1);
-    }
-
-    execFileSync('git', ['add', '--', '.factory/plan.md'], { cwd: target });
-    execFileSync('git', [
-      'commit', '--only', '-m', 'Update plan', '--', '.factory/plan.md',
-    ], { cwd: target });
-  }
-
-  if (!args.includes('--all') || outcome.complete) {
-    console.log('factory stopped');
-    break;
-  }
+  machine = next;
 }
+commit(['.factory/plan.md'], 'Update plan');
+console.log('factory stopped');
