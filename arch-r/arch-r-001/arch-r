@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Run ArchR from any working directory without installation."""
+from archr.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
