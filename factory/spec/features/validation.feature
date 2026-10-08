@@ -14,7 +14,7 @@ Feature: Validation
 
     Example: Earlier work is not rechecked
       Given a plan whose first task is done
-      When the factory runs one pass
+      When the factory runs
       Then the validator was given the work for the second task
       And it was not given the work for the first task
 
@@ -28,32 +28,29 @@ Feature: Validation
     Example: The lens goes to the validator
       Given a plan with three tasks, none of them done
       And the validator's lens is testability
-      When the factory runs one pass
+      When the factory runs
       Then the validator was given "testability"
 
     @real-agent
     Example: A validator that looks at testability
       Given every machine runs pi
       And the validator's lens is testability
-      When the factory runs one pass
+      When the factory runs
       Then the validator's findings are about testability
 
     @real-agent
     Example: A validator that looks at something else
       Given every machine runs pi
       And the validator's lens is internationalisation
-      When the factory runs one pass
+      When the factory runs
       Then the validator's findings are about internationalisation
 
   Rule: A validator's findings go back to the doer
 
-    The validator's result says whether it is satisfied and, if not,
-    what it found: {"satisfied": false, "findings": [...]}.
-
     Example: The first attempt is not good enough
       Given a plan with three tasks, none of them done
       And the validator is not satisfied the first time
-      When the factory runs one pass
+      When the factory runs
       Then the doer was given the validator's findings
 
   Rule: A validator reports findings, and changes neither the plan nor the work

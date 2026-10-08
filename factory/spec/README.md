@@ -1,72 +1,51 @@
-# Homework 2 — Checking the work
+# Homework 3 — The assembly line
 
-Read `FACTORY.md`, then the feature files in `features/`, and make them true
-of the factory you built for homework 1. Together they are the whole spec,
-not just the new parts: the rules you already satisfied are still there, and
-some of them have changed. A pass is no longer one agent call: a planner
-keeps the plan, a doer does the work and a validator checks it. Your one
-prompt from homework 1 splits in three.
+Read `FACTORY.md`, then the feature files in `features/`. Together they are
+the whole spec of the factory at this point, not just the new parts.
 
-Before you start, pick what your validator should look for. Testability,
-single responsibility, usability, internationalisation, security — any lens
-will do, and the interesting part is what your factory does with the
-findings. Choose one and write it down.
+The factory does the same work it did for homework 2. What changes is where
+the route lives. Until now it was hidden in your code: the order of planner,
+doer and validator, the retry, and the looping in the pass. All of it comes
+out into an **assembly line** — a graph the factory reads — and the planner,
+the doer and the validator become machines on it. The planner decides
+whether there is more to do; the line says where each answer goes.
 
-Your doubles now play three machines. A validator's double answers with
-whether it is satisfied and, if not, why: the fields `satisfied` and
-`findings` that `machine.feature` has your factory ask for.
+That takes the pass with it. There is no more running one pass: the factory
+runs the assembly line, and the line says what happens next.
 
-## Once your suite passes
+Each machine now has a name, and a configuration kept in your factory's
+folder under that name: what harness runs it (`pi`, unless it names another)
+and anything else it needs, such as the validator's lens. The line's nodes
+are those names.
 
-Keep the game you built in homework 1 in `tetris/tetris-001/`. Use your
-upgraded factory with a real coding agent to build from the same seed in
-a new target. From the repository root:
+An edge only routes. Its label names a field of the result the machine
+before it answered with: `satisfied` is taken when the validator's result
+says `"satisfied": true`, `not satisfied` when it says false. So the
+machines' results, not their words, decide where the line goes. The retry
+limit is not on the line: it is the factory's, a setting of your choice.
 
-```sh
-bin/factory --seed tetris/spec.md --target tetris/tetris-002 --all
-npm --prefix tetris/tetris-002 start
-```
+Your factory has one assembly line, kept in its own folder. Take the
+validator out of it and the factory should still run, doing the work
+unchecked — without a change to your code.
 
-The factory commits this generation's plan with its work. The planner
-marks tasks done after the work is committed, so the factory also records
-the final plan update before it stops. A run to completion leaves no
-uncommitted changes in the target; no separate plan checkpoint is needed.
+`assembly-line.feature` is prescriptive about Graphviz. That is to keep the
+acceptance criteria clean, not because it is the only way — if you would
+rather express the assembly line some other way, go ahead. The only thing
+you need to remember is you'll have to carry over any changes you make to
+the feature files across the future iterations
 
-The new target gets its own plan. Running against `tetris/tetris-001` again
-would find its completed plan and stop. Changing the target gives the
-upgraded factory fresh work without deleting v1 or changing the seed.
 
-What difference did validation make? **None is a fine answer.** Start by
-looking at `tetris/tetris-002/.factory/plan.md`: any validator findings are
-recorded there as subtasks. Then compare the two games.
+## Run against a target
 
-Your agent should offer to compare `tetris/tetris-001` with
-`tetris/tetris-002`, summarise what differs, and build an HTML report of the
-comparison at
-`tetris/comparison.html`. Review it together. Two builds from the same seed
-can differ anyway; the report should distinguish differences supported by
-recorded validator findings from other differences between the generations.
-It should also say when there are no recorded findings.
-
-You can play both versions in separate terminals:
+The factory source stays in `factory/`, and the target argument still
+selects the output codebase. Running the assembly line replaces `--all`:
 
 ```sh
-npm --prefix tetris/tetris-001 start
-npm --prefix tetris/tetris-002 start
+$ bin/factory --seed tetris/spec.md --target tetris/tetris-003
+$ npm --prefix tetris/tetris-003 start
 ```
 
-For your Maven submission, include screenshots of both versions, name your
-validator's lens, and explain what difference validation made to the code,
-if any. Use the plan and comparison report to help explain what you observed.
-
-### Bonus round: change the lens
-
-Choose a different lens for the validator and build another generation from
-the same seed in a fresh target. Keep the model and everything else the same.
-Name the target for the lens you chose, such as
-`tetris/tetris-002-security`, and leave `tetris/tetris-002` unchanged.
-
-Compare the two validated generations. Start with their plans: did the new
-lens produce different findings or subtasks? Then compare the code. Which
-differences can you trace back to those findings? What impact did changing
-the lens have? Finding no difference is useful too.
+A fresh target starts with a fresh plan in `.factory/plan.md`. Reusing
+`tetris/tetris-002` resumes its plan, which may already be complete. The seed
+is still supplied with `--seed`; the line and machine configurations live
+with the factory.

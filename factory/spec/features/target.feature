@@ -20,7 +20,7 @@ Feature: Choosing where to build
 
     Example: No target argument
       Given no target is chosen
-      When the factory runs one pass
+      When the factory runs
       Then it reports that a target is required
       And no agent has been called
       And the factory's own files and unrelated uncommitted changes are as they were
@@ -29,7 +29,7 @@ Feature: Choosing where to build
 
     Example: A fresh output folder
       Given the target folder does not exist
-      When the factory runs one pass
+      When the factory runs
       Then the target uses the containing repository
       And the plan is .factory/plan.md in the target
       And the factory's own files and unrelated uncommitted changes are as they were
@@ -38,7 +38,7 @@ Feature: Choosing where to build
 
     Example: A standalone output folder
       Given the target is outside any Git repository
-      When the factory runs one pass
+      When the factory runs
       Then the target is a Git repository
       And the plan is .factory/plan.md in the target
       And the factory's own files and unrelated uncommitted changes are as they were
