@@ -4,7 +4,7 @@ Seed: `/workspaces/architecture-review/tetris/spec.md`
 
 ## Tasks
 
-- [ ] Create a Node.js project with an `npm start` entry point.
+- [x] Create a Node.js project with an `npm start` entry point.
 - [ ] Implement the Tetris board, seven tetrominoes, spawning, movement, rotation, collision detection, gravity, and piece locking.
 - [ ] Implement completed-line clearing, scoring, and game-over detection.
 - [ ] Render the complete display within 24 terminal rows: use a 20-row board, two border rows, and two status/control rows; show game-over text in the status area.
