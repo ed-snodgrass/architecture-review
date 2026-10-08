@@ -17,6 +17,22 @@ FEIGN_TYPE = "org.springframework.cloud.openfeign.FeignClient"
 
 
 @dataclass(frozen=True)
+class Mapping:
+    methods: tuple[str, ...]
+    paths: tuple[str, ...]
+    source_path: str
+    line: int
+
+
+@dataclass(frozen=True)
+class Operation:
+    method_name: str
+    methods: tuple[str, ...]
+    paths: tuple[str, ...]
+    evidence: tuple[Mapping, ...]
+
+
+@dataclass(frozen=True)
 class FeignClient:
     interface_name: str
     name: str | None
@@ -28,6 +44,7 @@ class FeignClient:
     # Source offsets delimit the interface for subsequent operation discovery.
     body_start: int = 0
     body_end: int = 0
+    operations: tuple[Operation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,8 +205,153 @@ def extract_clients(source: str, source_path: str) -> list[FeignClient]:
             expression(name_tokens) if name is None else None,
             expression(url_tokens) if url is None else None,
             tokens[opening].end, tokens[closing].start,
+            extract_operations(source, source_path, tokens, opening, closing),
         ))
     return clients
+
+
+_MAPPING_PACKAGE = "org.springframework.web.bind.annotation."
+_MAPPING_METHODS = {
+    "GetMapping": "GET", "PostMapping": "POST", "PutMapping": "PUT",
+    "PatchMapping": "PATCH", "DeleteMapping": "DELETE",
+}
+
+
+def _array_values(tokens: list[Token]) -> list[list[Token]]:
+    if tokens and tokens[0].text == "{" and tokens[-1].text == "}":
+        tokens = tokens[1:-1]
+    groups = [[]]
+    for token in tokens:
+        if token.text == ",":
+            groups.append([])
+        else:
+            groups[-1].append(token)
+    return [group for group in groups if group]
+
+
+def _mapping(source, source_path, tokens, start, imports):
+    name, args, end = _annotation(tokens, start)
+    short = name.removeprefix(_MAPPING_PACKAGE)
+    if short not in {*_MAPPING_METHODS, "RequestMapping"}:
+        return None, end
+    if name == short:
+        if (_MAPPING_PACKAGE + short not in imports and
+                _MAPPING_PACKAGE + "*" not in imports):
+            return None, end
+        if any(i.endswith("." + short) and i != _MAPPING_PACKAGE + short for i in imports):
+            return None, end
+    elif name != _MAPPING_PACKAGE + short:
+        return None, end
+    attrs = _attributes(args)
+    paths = []
+    for value in _array_values(attrs.get("path") or attrs.get("value", [])):
+        literal = _literal(value)
+        paths.append(literal if literal is not None else
+                     "unresolved: " + source[value[0].start:value[-1].end])
+    methods = []
+    if short in _MAPPING_METHODS:
+        methods.append(_MAPPING_METHODS[short])
+    else:
+        for value in _array_values(attrs.get("method", [])):
+            text = "".join(t.text for t in value)
+            match = re.fullmatch(r"(?:org\.springframework\.web\.bind\.annotation\.)?RequestMethod\.(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE)", text)
+            methods.append(match[1] if match else "unresolved: " + text)
+    return Mapping(tuple(methods), tuple(paths), source_path, tokens[start].line), end
+
+
+def extract_operations(source, source_path, tokens, opening, closing) -> tuple[Operation, ...]:
+    """Extract only directly declared methods, not nested types or method bodies.
+
+    Empty methods/paths mean unspecified, not an invented GET or root path.
+    Interface-level mappings supply prefixes and method restrictions; both
+    declaration and method annotations remain available as source evidence.
+    """
+    imports = set()
+    for index, token in enumerate(tokens):
+        if token.text == "import":
+            end = index + 1
+            while end < len(tokens) and tokens[end].text != ";":
+                end += 1
+            imports.add("".join(t.text for t in tokens[index + 1:end]))
+    parent = []
+    index = 0
+    # Skip complete annotation arguments, including array braces.
+    while index < opening:
+        if tokens[index].text != "@":
+            index += 1
+            continue
+        mapping, end = _mapping(source, source_path, tokens, index, imports)
+        cursor = end
+        while cursor < opening:
+            if tokens[cursor].text == "@":
+                _, _, cursor = _annotation(tokens, cursor)
+            elif tokens[cursor].text in ("public", "protected", "private", "abstract", "static", "strictfp"):
+                cursor += 1
+            else:
+                break
+        if mapping and cursor < opening and tokens[cursor].text == "interface":
+            brace = cursor
+            while brace < opening and tokens[brace].text != "{":
+                brace += 1
+            if brace == opening:
+                parent.append(mapping)
+        index = end
+
+    operations = []
+    pending = []
+    declaration = []
+    index = opening + 1
+    while index < closing:
+        text = tokens[index].text
+        if text == "@":
+            mapping, index = _mapping(source, source_path, tokens, index, imports)
+            if mapping:
+                pending.append(mapping)
+            continue
+        if text in (";", "{"):
+            # The first top-level parameter list identifies a method. An
+            # initializer or nested type must never become an operation.
+            paren = next((i for i, t in enumerate(declaration) if t.text == "("), None)
+            if pending and paren is not None and paren > 0 and not any(
+                    t.text in ("=", "class", "interface", "enum", "record") for t in declaration[:paren]):
+                for mapping in pending:
+                    parents = parent or [None]
+                    for prefix in parents:
+                        methods = mapping.methods or (prefix.methods if prefix else ())
+                        if prefix and prefix.methods and mapping.methods:
+                            # Spring combines explicit type/method conditions
+                            # as a union, retaining declaration order.
+                            methods = tuple(dict.fromkeys(prefix.methods + mapping.methods))
+                        paths = mapping.paths
+                        if prefix and prefix.paths:
+                            if paths:
+                                paths = tuple(
+                                    (a.rstrip("/") + "/" + b.lstrip("/"))
+                                    if not a.startswith("unresolved:") and not b.startswith("unresolved:")
+                                    else "unresolved: " + a + " + " + b
+                                    for a in prefix.paths for b in paths)
+                            else:
+                                paths = prefix.paths
+                        evidence = (prefix, mapping) if prefix else (mapping,)
+                        operations.append(Operation(declaration[paren - 1].text, methods, paths, evidence))
+            pending = []
+            declaration = []
+            if text == "{":
+                end = _balanced_end(tokens, index)
+                index = (end + 1) if end is not None else closing
+            else:
+                index += 1
+            continue
+        if text in ("(", "["):
+            end = _balanced_end(tokens, index)
+            if end is None:
+                break
+            declaration.extend(tokens[index:end + 1])
+            index = end + 1
+            continue
+        declaration.append(tokens[index])
+        index += 1
+    return tuple(operations)
 
 
 def discover_clients(module: Module) -> list[FeignClient]:
