@@ -1,4 +1,6 @@
 #!/usr/bin/env node
 
-console.log('Terminal Tetris');
-console.log('Game implementation is coming next.');
+import { Game } from './game.js';
+import { renderGame } from './render.js';
+
+process.stdout.write(renderGame(new Game()));
