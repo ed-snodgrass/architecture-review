@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
-import { Game } from './game.js';
-import { renderGame } from './render.js';
+import { runGame } from './terminal.js';
 
-process.stdout.write(renderGame(new Game()));
+try {
+  runGame();
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
+}

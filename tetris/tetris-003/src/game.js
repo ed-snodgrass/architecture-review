@@ -116,6 +116,12 @@ export class Game {
     return this.lock();
   }
 
+  hardDrop() {
+    if (this.gameOver || !this.active) return false;
+    while (this.move(0, 1)) { /* Drop to the last legal row. */ }
+    return this.lock();
+  }
+
   lock() {
     if (this.gameOver || !this.active || !this.canPlace(this.active) ||
         this.canPlace({ ...this.active, y: this.active.y + 1 })) return false;
