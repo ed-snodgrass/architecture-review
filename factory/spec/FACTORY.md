@@ -7,29 +7,27 @@ when the plan is complete.
 
 The factory writes none of its machines' work itself, and never reads
 the plan. A machine has a name and a harness that runs it: `pi` by
-default, or another named in the machine's configuration, kept in the
-factory's folder under its name. Each machine answers with a result:
-JSON describing the job it did.
+default, or another named in the machine's configuration. Each machine
+answers with a result: JSON describing the job it did.
 
 The route through the machines is an **assembly line**: a graph the
 factory reads before it does any work. An edge only routes: its label
 names a field of the result of the machine it leaves. The planner
 decides whether there is more to do; the line holds the loop back to it
 and the retry after failed validation, and the factory limits how many
-attempts a task gets. The factory has one assembly line, kept in its own
-folder.
+attempts a task gets. Lines live in the target, in `.assembly-lines/`,
+with the machines they name each in a folder of its own in
+`.assembly-lines/.machines/`. A target can hold several lines, and every
+line in it that names the doer runs the same doer. A line never names a
+target.
 
-Each run requires both a seed file and a target folder. Relative paths
-are resolved from the caller's working directory; absolute paths work too.
-Targets are plain folders. The factory creates a missing folder, uses its containing Git repository and initializes
-Git only if no repository contains it. It runs agents in the target and
-commits only that target's work and plan, preserving unrelated staged
-and unstaged edits. Each target keeps its own plan in `.factory/plan.md`. A fresh target starts fresh; rerunning a
-target resumes its plan. An omitted or missing seed reports that there is
-no seed, without calling an agent. Before stopping successfully, the
-factory records the final plan, including updates after a work commit.
-A completed run leaves no uncommitted changes in the target.
+A **run** is a named execution of one of the target's assembly lines on a
+seed, saying what to build, against a target, the codebase to build it in. The
+factory source is separate from the generated product. Targets
+are plain folders: commits in their containing repository include only
+the selected target's work and preserve unrelated staged changes. Git is
+initialized only when no repository contains the target. The run keeps
+its plan in `runs/<name>/plan.md` in the factory's folder, never in the target.
 
-New since iteration 2: `assembly-line.feature`. The pass is gone — the
-line says what runs next — and each machine is configured under its
-name.
+New since iteration 3: runs, and targets that hold their own lines and
+machines. Plans move from each target into the factory's `runs/` folder.

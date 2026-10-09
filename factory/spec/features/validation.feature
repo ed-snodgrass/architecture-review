@@ -4,8 +4,10 @@ Feature: Validation
 
   Background:
     Given a copy of the factory
-    And a new target
-    And a seed describing a game of Tetris
+    And a new target, with a seed describing a game of Tetris
+    And the target has the machines planner, doer and validator
+    And the target has an assembly line "careful" on which the doer's work is validated
+    And a run named "tetris", on the "careful" line, with that seed and target
     And the planner plans the tasks alpha and beta
     And the doer does the next task in the plan
     And the validator is always satisfied
@@ -14,7 +16,7 @@ Feature: Validation
 
     Example: Earlier work is not rechecked
       Given a plan whose first task is done
-      When the factory runs
+      When the factory runs the "tetris" run
       Then the validator was given the work for the second task
       And it was not given the work for the first task
 
@@ -28,21 +30,21 @@ Feature: Validation
     Example: The lens goes to the validator
       Given a plan with three tasks, none of them done
       And the validator's lens is testability
-      When the factory runs
+      When the factory runs the "tetris" run
       Then the validator was given "testability"
 
     @real-agent
     Example: A validator that looks at testability
       Given every machine runs pi
       And the validator's lens is testability
-      When the factory runs
+      When the factory runs the "tetris" run
       Then the validator's findings are about testability
 
     @real-agent
     Example: A validator that looks at something else
       Given every machine runs pi
       And the validator's lens is internationalisation
-      When the factory runs
+      When the factory runs the "tetris" run
       Then the validator's findings are about internationalisation
 
   Rule: A validator's findings go back to the doer
@@ -50,7 +52,7 @@ Feature: Validation
     Example: The first attempt is not good enough
       Given a plan with three tasks, none of them done
       And the validator is not satisfied the first time
-      When the factory runs
+      When the factory runs the "tetris" run
       Then the doer was given the validator's findings
 
   Rule: A validator reports findings, and changes neither the plan nor the work

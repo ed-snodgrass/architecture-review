@@ -1,51 +1,59 @@
-# Homework 3 — The assembly line
+# Homework 4 — Runs and targets
 
 Read `FACTORY.md`, then the feature files in `features/`. Together they are
 the whole spec of the factory at this point, not just the new parts.
 
-The factory does the same work it did for homework 2. What changes is where
-the route lives. Until now it was hidden in your code: the order of planner,
-doer and validator, the retry, and the looping in the pass. All of it comes
-out into an **assembly line** — a graph the factory reads — and the planner,
-the doer and the validator become machines on it. The planner decides
-whether there is more to do; the line says where each answer goes.
+Your factory already builds into the target folder you choose. Until now
+every invocation supplied a seed and target and used the same assembly line. Each
+target kept one plan: an implicit run for that generation. This homework
+introduces named runs that remember what they build and how, while the
+factory source stays in `factory/`.
 
-That takes the pass with it. There is no more running one pass: the factory
-runs the assembly line, and the line says what happens next.
+- **The assembly lines move into the target.** A target holds its
+  product and, in `.assembly-lines/`, the lines that build it, with the
+  machines they name in `.assembly-lines/.machines/`, a folder each. A
+  machine's name is unique in its target: every line there that names
+  the doer runs the same doer. Move your line and machines from homework
+  3 into `tetris/tetris-003/.assembly-lines/` (or whichever target you
+  choose).
+- **Each execution is a named run.** You name the run, and the first time
+  you start it you give it a target, one of that target's lines, and a seed.
+  The run remembers all three; after that, its name is enough. It keeps
+  its plan with the factory, in `factory/runs/<name>/plan.md`. To resume your
+  existing game, move its `.factory/plan.md` there; a run
+  now owns that plan. Or start with a fresh target. Unlike the target's
+  plan in earlier homeworks, run state must stay out of Git: add
+  `/factory/runs/` to your repository-root `.gitignore`.
 
-Each machine now has a name, and a configuration kept in your factory's
-folder under that name: what harness runs it (`pi`, unless it names another)
-and anything else it needs, such as the validator's lens. The line's nodes
-are those names.
+Once the route is data, a target can hold more than one line. Write a second
+one — the same line without the validator will do — and have each run say
+which line it runs.
 
-An edge only routes. Its label names a field of the result the machine
-before it answered with: `satisfied` is taken when the validator's result
-says `"satisfied": true`, `not satisfied` when it says false. So the
-machines' results, not their words, decide where the line goes. The retry
-limit is not on the line: it is the factory's, a setting of your choice.
+Starting or resuming a run is an **invocation** of that same run. Its name,
+settings and plan persist across invocations.
 
-Your factory has one assembly line, kept in its own folder. Take the
-validator out of it and the factory should still run, doing the work
-unchecked — without a change to your code.
+## The commands you'll end up with
 
-`assembly-line.feature` is prescriptive about Graphviz. That is to keep the
-acceptance criteria clean, not because it is the only way — if you would
-rather express the assembly line some other way, go ahead. The only thing
-you need to remember is you'll have to carry over any changes you make to
-the feature files across the future iterations
-
-
-## Run against a target
-
-The factory source stays in `factory/`, and the target argument still
-selects the output codebase. Running the assembly line replaces `--all`:
+The exact shape is your choice. Run from the repository root, with
+`bin/factory` linked to your entry point:
 
 ```sh
-$ bin/factory --seed tetris/spec.md --target tetris/tetris-003
-$ npm --prefix tetris/tetris-003 start
+# a new run: its target, its line and its seed
+$ bin/factory --run tetris --target tetris/tetris-003 --line careful --seed tetris/spec.md
+
+# after that, its name is enough
+$ bin/factory --run tetris
+
+# a second target: write snake/spec.md describing Snake first
+# give it a line and machines of its own
+$ mkdir -p snake/snake1
+$ cp -r tetris/tetris-003/.assembly-lines snake/snake1/
+$ bin/factory --run snake --target snake/snake1 --line quick --seed snake/spec.md
 ```
 
-A fresh target starts with a fresh plan in `.factory/plan.md`. Reusing
-`tetris/tetris-002` resumes its plan, which may already be complete. The seed
-is still supplied with `--seed`; the line and machine configurations live
-with the factory.
+The factory should build whatever the new seed describes, without disturbing
+the first run.
+
+The checks still run against a copy of your factory, because runs live with
+the factory. The copy still builds in separate targets, now each holding its
+own lines and machines.
