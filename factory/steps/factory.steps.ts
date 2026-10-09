@@ -3,16 +3,29 @@ import assert from 'node:assert/strict';
 import { exec, execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 Given('a new target', function() {
   this.target = join(this.workspace, 'target');
   mkdirSync(this.target);
 });
 
+Given('a new target, with a seed describing a game of Tetris', function () {
+  this.targetNumber = (this.targetNumber ?? 0) + 1;
+  this.target = join(this.workspace, this.targetNumber === 1 ? 'target' : `target-${this.targetNumber}`);
+  mkdirSync(this.target);
+  this.seed = join(this.workspace, this.targetNumber === 1 ? 'seed.md' : `seed-${this.targetNumber}.md`);
+  copyFileSync(resolve('../tetris/spec.md'), this.seed);
+  this.targets ??= {};
+  this.targets.tetris ??= this.target;
+});
+
 Given('this assembly line:', function (line: string) {
   this.assemblyLine = line;
-  writeFileSync(join(this.workspace, 'assembly-line.dot'), line);
+  this.lineName = 'assembly-line';
+  const directory = join(this.target, '.assembly-lines');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, this.lineName + '.dot'), line);
 });
 
 Given('the target folder does not exist', function () {
@@ -20,8 +33,11 @@ Given('the target folder does not exist', function () {
 });
 
 Given('the target is outside any Git repository', function () {
+  const previousTarget = this.target;
   this.standaloneTarget = mkdtempSync(join(tmpdir(), 'factory-target-'));
+  cpSync(previousTarget, this.standaloneTarget, { recursive: true });
   this.target = this.standaloneTarget;
+  if (this.runName && this.runs?.[this.runName]) this.runs[this.runName].target = this.target;
 });
 
 Then('the target uses the containing repository', function () {
@@ -54,12 +70,8 @@ Given('a copy of the factory', function () {
   for (const file of ['cli.ts', 'run', 'package.json']) {
     copyFileSync(resolve(file), join(this.workspace, file));
   }
-  copyFileSync(resolve('assembly-line.dot'), join(this.workspace, 'assembly-line.dot'));
-  for (const machine of ['planner', 'doer', 'validator']) {
-    cpSync(resolve(machine), join(this.workspace, machine), { recursive: true });
-  }
-
   symlinkSync(resolve('node_modules'), join(this.workspace, 'node_modules'));
+  writeFileSync(join(this.workspace, '.gitignore'), '/runs/\n');
 
   const git = (args: string[]) => 
     execFileSync('git', args, {
@@ -117,6 +129,40 @@ Given('a seed describing a game of Tetris', function() {
   copyFileSync(resolve('../tetris/spec.md'), this.seed);
 });
 
+Given('the target has the machines planner, doer and validator', function () {
+  for (const machine of ['planner', 'doer', 'validator']) {
+    const directory = join(this.target, '.assembly-lines', '.machines', machine);
+    mkdirSync(directory, { recursive: true });
+    const configuration = machine === 'validator'
+      ? { lens: 'single responsibility' }
+      : {};
+    writeFileSync(join(directory, 'machine.json'), JSON.stringify(configuration));
+  }
+});
+
+const carefulLine = `digraph assembly_line {
+  start -> planner
+  planner -> doer [label="not complete"]
+  planner -> finish [label="complete"]
+  doer -> validator
+  validator -> doer [label="not satisfied"]
+  validator -> planner [label="satisfied"]
+}\n`;
+
+Given("the target has an assembly line {string} on which the doer's work is validated", function (name: string) {
+  const directory = join(this.target, '.assembly-lines');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, name + '.dot'), carefulLine);
+});
+
+Given('a run named {string}, on the {string} line, with that seed and target', function (run: string, line: string) {
+  this.runs ??= {};
+  this.runs[run] = { target: this.target, seed: this.seed, line };
+  this.runName = run;
+  this.plan = join(this.workspace, 'runs', run, 'plan.md');
+  this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
+});
+
 Given('no seed is chosen', function () {
   this.seed = undefined;
 });
@@ -144,46 +190,34 @@ Given('the doer cannot be run', function () {
 });
 
 Given('no plan', function () {
-  rmSync(join(this.target, '.factory', 'plan.md'), { force: true });
+  rmSync(this.plan, { force: true });
 });
 
 Given('a plan with three tasks, none of them done', function() {
-  const planDirectory = join(this.target, '.factory');
+  const planDirectory = dirname(this.plan);
   mkdirSync(planDirectory, {recursive: true });
   writeFileSync(
-    join(planDirectory, 'plan.md'),
+    this.plan,
     '- [ ] alpha\n- [ ] beta\n- [ ] gamma\n',
   );
 });
 
 Given('a plan whose first task is done', function() {
-  const planDirectory = join(this.target, '.factory');
+  const planDirectory = dirname(this.plan);
   mkdirSync(planDirectory, { recursive: true });
   writeFileSync(
-    join(planDirectory, 'plan.md'),
+    this.plan,
     '- [x] alpha\n- [ ] beta\n- [ ] gamma\n',
   );
 });
 
 Given('a plan in which every task is done', function () {
-  const planDirectory = join(this.target, '.factory');
+  const planDirectory = dirname(this.plan);
   mkdirSync(planDirectory, { recursive: true });
   writeFileSync(
-    join(planDirectory, 'plan.md'),
+    this.plan,
     '- [x] alpha\n- [x] beta\n',
   );
-  execFileSync('git', ['add', '--', '.factory/plan.md'], {
-    cwd: this.target,
-  });
-  execFileSync('git', [
-    'commit', '--only', '-m', 'Completed plan', '--', '.factory/plan.md',
-  ], {
-    cwd: this.target,
-  });
-  this.initialCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: this.target,
-    encoding: 'utf8',
-  }).trim();
 });
 
 Given('the validator says {string} before its result', function (message: string) {
@@ -194,7 +228,7 @@ Then(
   'the plan has the tasks {string} and {string}, and no others', 
   function (first: string, second: string) {
     const plan = readFileSync(
-      join(this.target, '.factory', 'plan.md'),
+      this.plan,
       'utf8',
     );
     const tasks = [...plan.matchAll(/^- \[[ x]\] (.+)$/gm)].map(match => match[1]);
@@ -205,7 +239,7 @@ Then(
 
 Then('the plan still has those three tasks', function () {
   const plan = readFileSync(
-    join(this.target, '.factory', 'plan.md'),
+    this.plan,
     'utf8',
   );
   const tasks = [...plan.matchAll(/^- \[[ x]\] (.+)$/gm)]
@@ -216,7 +250,7 @@ Then('the plan still has those three tasks', function () {
 
 Then('there is no plan', function() {
   assert.equal(
-    existsSync(join(this.target, '.factory', 'plan.md')),
+    existsSync(this.plan),
     false,
     'Expected no plan in the target',
   );
@@ -226,14 +260,14 @@ Then(
   /^(?:there is a plan|the plan is \.factory\/plan\.md in the target)$/,
   function () {
   assert.ok(
-    existsSync(join(this.target, '.factory', 'plan.md')),
+    existsSync(this.plan),
     'Expected a plan in the target',
   );
 });
 
 Then("there is no plan in the factory's folder", function () {
   assert.equal(
-    existsSync(join(this.workspace, '.factory', 'plan.md')),
+    existsSync(join(this.target, '.factory', 'plan.md')),
     false,
     "Expected no plan in the factory's folder",
   );
@@ -402,9 +436,9 @@ fs.writeFileSync(
 );
 fs.appendFileSync(path.join(workspace, 'agent-calls'), name + '\n');
 
-const plan = '.factory/plan.md';
+const plan = process.env.FACTORY_TEST_PLAN;
 const prompt = process.argv.slice(2).join('\n');
-fs.mkdirSync('.factory', { recursive: true });
+fs.mkdirSync(path.dirname(plan), { recursive: true });
 
 if (process.env.FACTORY_TEST_PLANNER_PROSE === '1') {
   if (!fs.existsSync(plan)) {
@@ -445,7 +479,7 @@ console.log(JSON.stringify({ complete: !text.includes('- [ ]') }));
 
   this.harness = 'fake-agent';
   this.env = {
-    ...process.env,
+    ...(this.env ?? process.env),
     PATH: agentBin + ':' + process.env.PATH,
     FACTORY_TEST_WORKSPACE: this.workspace,
   };
@@ -464,7 +498,7 @@ fs.appendFileSync(path.join(workspace, 'doer-calls'), 'called\n');
 fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
 fs.appendFileSync(path.join(workspace, 'doer-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 
-const plan = fs.readFileSync('.factory/plan.md', 'utf8');
+const plan = fs.readFileSync(process.env.FACTORY_TEST_PLAN, 'utf8');
 
 let task;
 if (process.env.FACTORY_TEST_DOER_PROSE === '1') {
@@ -495,6 +529,7 @@ const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-validator\n');
 fs.appendFileSync(path.join(workspace, 'validator-calls'), 'called\n');
+fs.appendFileSync(path.join(workspace, 'validator-runs'), process.env.FACTORY_RUN_NAME + '\n');
 const validatorArgs = path.join(workspace, 'validator-args');
 if (!fs.existsSync(validatorArgs)) fs.writeFileSync(validatorArgs, JSON.stringify(process.argv.slice(2)));
 if (process.env.FACTORY_TEST_VALIDATOR_PREAMBLE) {
@@ -559,8 +594,8 @@ if (process.env.FACTORY_TEST_PROSE_ONLY) {
   process.exit(0);
 }
 
-const plan = '.factory/plan.md';
-fs.mkdirSync('.factory', { recursive: true });
+const plan = process.env.FACTORY_TEST_PLAN;
+fs.mkdirSync(path.dirname(plan), { recursive: true });
 
 if (process.env.FACTORY_TEST_PROSE_PLAN) {
   if (!fs.existsSync(plan)) {
@@ -608,7 +643,7 @@ if (!fs.existsSync(plan)) {
   
   this.harness = 'fake-agent';
   this.env = {
-    ...process.env,
+    ...(this.env ?? process.env),
     PATH: agentBin + ':' + process.env.PATH,
     FACTORY_TEST_WORKSPACE: this.workspace,
   }
@@ -642,19 +677,12 @@ Given("the validator's lens is {word}", function (lens: string) {
   this.validatorLens = lens;
 });
 
-function runFactory(this: IWorld, mode: string) {
-  const args = [join(this.workspace, 'run')];
-
-  if (!this.omitTarget) {
-    args.push('--target', this.targetArgument ?? this.target);
-  }
-
-  if (this.seed !== undefined) {
-    args.push('--seed', this.seed);
-  }
-
-  if (mode === 'to completion') {
-    args.push('--all');
+function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined) {
+  const args = [join(this.workspace, 'run'), '--run', run];
+  const settings = this.runs?.[run];
+  if (!onlyName && settings) {
+    if (!this.omitTarget) args.push('--target', target ?? settings.target);
+    args.push('--line', settings.line, '--seed', settings.seed);
   }
 
   if (this.harness !== undefined) {
@@ -687,18 +715,25 @@ function runFactory(this: IWorld, mode: string) {
 }
 
 When('the factory runs', function () {
-  runFactory.call(this, 'to completion');
+  runFactory.call(this);
+});
+
+When('the factory runs the {string} run', function (run: string) {
+  this.runName = run;
+  this.plan = join(this.workspace, 'runs', run, 'plan.md');
+  this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
+  runFactory.call(this, run);
 });
 
 When('the factory reads the assembly line', function () {
-  this.result = spawnSync('bash', [join(this.workspace, 'run'), '--check-assembly-line'], {
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), '--check-assembly-line', '--target', this.target, '--line', this.lineName], {
     cwd: this.workspace,
     env: this.env ?? process.env,
     encoding: 'utf8',
   });
 });
 
-When(/^the factory runs (one pass|to completion)$/, runFactory);
+When(/^the factory runs (one pass|to completion)$/, function () { runFactory.call(this); });
 
 When('the factory builds the target {string} to completion', function (name: string) {
   this.target = resolve(this.workspace, name);
@@ -817,7 +852,7 @@ Then('the doer was pointed at the plan and at the seed', function () {
 
   assert.ok(prompt.includes(this.seed), 'Expected the seed path');
   assert.ok(
-    prompt.includes(join(this.target, '.factory', 'plan.md')),
+    prompt.includes(this.plan),
     'Expected the plan path',
   );
 });
@@ -901,7 +936,7 @@ Then("the doer was given the validator's findings", function () {
 
 Then('the plan shows the first task as done', function () {
   const plan = readFileSync(
-    join(this.target, '.factory', 'plan.md'),
+    this.plan,
     'utf8',
   );
   assert.match(plan, /^- \[x\] alpha$/m);
@@ -909,7 +944,7 @@ Then('the plan shows the first task as done', function () {
 
 Then('the plan shows the first two tasks as done', function () {
   const plan = readFileSync(
-    join(this.target, '.factory', 'plan.md'),
+    this.plan,
     'utf8',
   );
 
@@ -919,7 +954,7 @@ Then('the plan shows the first two tasks as done', function () {
 
 Then('the plan shows the other two as not done', function () {
   const plan = readFileSync(
-    join(this.target, '.factory', 'plan.md'),
+    this.plan,
     'utf8',
   );
   assert.match(plan, /^- \[ \] beta$/m);
@@ -936,7 +971,7 @@ Then(
   /^the plan shows every task as (done|not done)$/,
   function (state: string) {
     const plan = readFileSync(
-      join(this.target, '.factory', 'plan.md'),
+      this.plan,
       'utf8',
     );
     const tasks = [...plan.matchAll(/^- \[([ x])\] (.+)$/gm)];
@@ -959,7 +994,7 @@ Then('it refuses it', function () {
 });
 
 Given('the validator has been taken out, so the doer goes straight to the planner', function () {
-  const file = join(this.workspace, 'assembly-line.dot');
+  const file = join(this.target, '.assembly-lines', this.lineName + '.dot');
   const line = readFileSync(file, 'utf8')
     .replace(/^\s*doer -> validator.*$/m, '  doer -> planner')
     .replace(/^\s*validator -> .*$(?:\n)?/gm, '');
@@ -967,12 +1002,12 @@ Given('the validator has been taken out, so the doer goes straight to the planne
 });
 
 Given('{string} is misspelt {string} throughout the assembly line', function (from: string, to: string) {
-  const file = join(this.workspace, 'assembly-line.dot');
+  const file = join(this.target, '.assembly-lines', this.lineName + '.dot');
   writeFileSync(file, readFileSync(file, 'utf8').replaceAll(from, to));
 });
 
 Given('the edge from validator to planner has been taken out', function () {
-  const file = join(this.workspace, 'assembly-line.dot');
+  const file = join(this.target, '.assembly-lines', this.lineName + '.dot');
   writeFileSync(file, readFileSync(file, 'utf8').replace(/^\s*validator -> planner.*$(?:\n)?/m, ''));
 });
 
@@ -993,7 +1028,7 @@ Given('the factory allows at most three attempts at a task', function () {
 });
 
 Given('the edges from validator are labelled {string} and {string}', function (positive: string, negative: string) {
-  const file = join(this.workspace, 'assembly-line.dot');
+  const file = join(this.target, '.assembly-lines', this.runs[this.runName].line + '.dot');
   let line = readFileSync(file, 'utf8');
   line = line.replace('label="not satisfied"', `label="${negative}"`)
     .replace('label="satisfied"', `label="${positive}"`);
@@ -1034,6 +1069,116 @@ Then('it reports that the result of validator has no field {string}', function (
 Then('the planner was called before the doer', function () {
   const calls = readFileSync(join(this.workspace, 'agent-calls'), 'utf8').trim().split('\n');
   assert.ok(calls.indexOf(this.harness) < calls.indexOf('fake-doer'));
+});
+
+Given('the validator has been taken out of the {string} line, so the doer goes straight to the planner', function (name: string) {
+  const file = join(this.target, '.assembly-lines', name + '.dot');
+  const line = readFileSync(file, 'utf8')
+    .replace(/^\s*doer -> validator.*$/m, '  doer -> planner')
+    .replace(/^\s*validator -> .*$(?:\n)?/gm, '');
+  writeFileSync(file, line);
+});
+
+Given("the target has an assembly line {string} on which the doer goes straight to the planner", function (name: string) {
+  const directory = join(this.target, '.assembly-lines');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, name + '.dot'), carefulLine
+    .replace(/^\s*doer -> validator.*$/m, '  doer -> planner')
+    .replace(/^\s*validator -> .*$(?:\n)?/gm, ''));
+});
+
+Given('a plan for each run with three tasks of its own, none of them done', function () {
+  for (const name of Object.keys(this.runs)) {
+    const plan = join(this.workspace, 'runs', name, 'plan.md');
+    mkdirSync(dirname(plan), { recursive: true });
+    writeFileSync(plan, `- [ ] ${name}-alpha\n- [ ] ${name}-beta\n- [ ] ${name}-gamma\n`);
+  }
+});
+
+Then('the validator was called for the {string} run', function (name: string) {
+  const runs = readFileSync(join(this.workspace, 'validator-runs'), 'utf8').trim().split('\n');
+  assert.ok(runs.includes(name));
+});
+
+Then('the validator was not called for the {string} run', function (name: string) {
+  const file = join(this.workspace, 'validator-runs');
+  const runs = existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : [];
+  assert.equal(runs.includes(name), false);
+});
+
+Given('a new target, with a seed describing a game of Snake', function () {
+  this.target = join(this.workspace, 'snake-target');
+  mkdirSync(this.target);
+  this.seed = join(this.workspace, 'snake-seed.md');
+  writeFileSync(this.seed, '# Snake\n\nBuild a game of Snake.\n');
+  this.targets ??= {};
+  this.targets.snake = this.target;
+});
+
+Given('the {string} line has been copied into the target', function (name: string) {
+  const source = join(this.targets.tetris, '.assembly-lines', name + '.dot');
+  const directory = join(this.target, '.assembly-lines');
+  mkdirSync(directory, { recursive: true });
+  copyFileSync(source, join(directory, name + '.dot'));
+});
+
+Then("each target holds only its own run's work", function () {
+  for (const [name, target] of Object.entries(this.targets) as [string, string][]) {
+    assert.ok(existsSync(join(target, `${name}-alpha.txt`)) || existsSync(join(target, 'alpha.txt')));
+    for (const [other, otherTarget] of Object.entries(this.targets) as [string, string][]) {
+      if (other !== name) assert.equal(existsSync(join(target, `${other}-alpha.txt`)), false, `${target} contains ${other}'s work`);
+    }
+  }
+});
+
+Given('{string} is misspelt {string} throughout the {string} line', function (from: string, to: string, name: string) {
+  const file = join(this.target, '.assembly-lines', name + '.dot');
+  writeFileSync(file, readFileSync(file, 'utf8').replaceAll(from, to));
+});
+
+Then("the plan is plan.md in the factory's runs folder, under tetris", function () {
+  assert.ok(existsSync(join(this.workspace, 'runs', 'tetris', 'plan.md')));
+});
+
+Then('there is no plan in the target', function () {
+  assert.equal(existsSync(join(this.target, '.factory', 'plan.md')), false);
+});
+
+Given('the {string} run has been started', function (name: string) {
+  const settings = this.runs[name];
+  const directory = join(this.workspace, 'runs', name);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'run.json'), JSON.stringify(settings, null, 2) + '\n');
+});
+
+When('the factory runs the {string} run, given only its name', function (name: string) {
+  this.runName = name;
+  this.plan = join(this.workspace, 'runs', name, 'plan.md');
+  this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
+  runFactory.call(this, name, true);
+});
+
+Then('the validator has been called twice', function () {
+  const calls = readFileSync(join(this.workspace, 'validator-calls'), 'utf8').trim().split('\n');
+  assert.equal(calls.length, 2);
+});
+
+When('the factory runs the {string} run with that target', function (name: string) {
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), '--run', name, '--target', this.target], {
+    cwd: this.workspace, env: this.env ?? process.env, encoding: 'utf8',
+  });
+});
+
+Then('the factory refuses', function () {
+  assert.notEqual(this.result.status, 0);
+});
+
+Then('it says the {string} run already has a target', function (name: string) {
+  assert.match(this.result.stdout + this.result.stderr, new RegExp(`${name} run already has a target`, 'i'));
+});
+
+Then('each run has its own plan', function () {
+  for (const name of Object.keys(this.runs)) assert.ok(existsSync(join(this.workspace, 'runs', name, 'plan.md')));
 });
 
 After(function () {
