@@ -5,7 +5,8 @@
   "description": "A terminal Tetris game",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"
