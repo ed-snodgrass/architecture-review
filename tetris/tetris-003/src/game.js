@@ -32,6 +32,9 @@ export class Game {
     this.random = random;
     this.bag = [];
     this.active = null;
+    this.score = 0;
+    this.lines = 0;
+    this.gameOver = false;
     this.spawn();
   }
 
@@ -46,10 +49,9 @@ export class Game {
     return this.bag.pop();
   }
 
-  // Do not replace a falling piece. A blocked spawn returns false; the caller
-  // can later use this signal to implement game-over handling.
+  // Do not replace a falling piece or resume a finished game.
   spawn(type) {
-    if (this.active) return false;
+    if (this.gameOver || this.active) return false;
     type ??= this.nextType();
     if (!Object.hasOwn(TETROMINOES, type)) {
       throw new RangeError(`Unknown tetromino: ${type}`);
@@ -61,7 +63,10 @@ export class Game {
       x: Math.floor((BOARD_WIDTH - matrix.length) / 2),
       y: 0,
     };
-    if (!this.canPlace(piece)) return false;
+    if (!this.canPlace(piece)) {
+      this.gameOver = true;
+      return false;
+    }
     this.active = piece;
     return true;
   }
@@ -82,7 +87,7 @@ export class Game {
 
   // A move is one cell horizontally or downwards, never a teleport through cells.
   move(dx, dy = 0) {
-    if (!this.active || !Number.isInteger(dx) || !Number.isInteger(dy) ||
+    if (this.gameOver || !this.active || !Number.isInteger(dx) || !Number.isInteger(dy) ||
         Math.abs(dx) + Math.abs(dy) !== 1 || dy < 0) return false;
     const candidate = { ...this.active, x: this.active.x + dx, y: this.active.y + dy };
     if (!this.canPlace(candidate)) return false;
@@ -91,7 +96,7 @@ export class Game {
   }
 
   rotate(direction = 1) {
-    if (!this.active || (direction !== 1 && direction !== -1)) return false;
+    if (this.gameOver || !this.active || (direction !== 1 && direction !== -1)) return false;
     const matrix = rotated(this.active.matrix, direction);
     // Small horizontal wall kicks keep rotation usable beside the walls.
     for (const offset of [0, -1, 1, -2, 2]) {
@@ -106,13 +111,13 @@ export class Game {
 
   // One gravity pulse. The terminal loop will determine the pulse interval.
   tick() {
-    if (!this.active) return false;
+    if (this.gameOver || !this.active) return false;
     if (this.move(0, 1)) return true;
     return this.lock();
   }
 
   lock() {
-    if (!this.active || !this.canPlace(this.active) ||
+    if (this.gameOver || !this.active || !this.canPlace(this.active) ||
         this.canPlace({ ...this.active, y: this.active.y + 1 })) return false;
     const { type, matrix, x, y } = this.active;
     for (let row = 0; row < matrix.length; row++) {
@@ -121,7 +126,24 @@ export class Game {
       }
     }
     this.active = null;
+    // Clear before spawning: completing a line can free the spawn area.
+    this.clearLines();
     this.spawn();
     return true;
+  }
+
+  clearLines() {
+    if (this.gameOver) return 0;
+    const remaining = this.board.filter(row => row.some(cell => cell === null));
+    const cleared = BOARD_HEIGHT - remaining.length;
+    if (cleared === 0) return 0;
+    this.board = [
+      ...Array.from({ length: cleared }, () => Array(BOARD_WIDTH).fill(null)),
+      ...remaining,
+    ];
+    this.lines += cleared;
+    // Fixed-level Tetris scoring: reward multi-line clears more heavily.
+    this.score += [0, 100, 300, 500, 800][cleared] ?? cleared * 200;
+    return cleared;
   }
 }
