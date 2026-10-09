@@ -50,6 +50,7 @@ export function startTerminalGame({ input = process.stdin, output = process.stdo
   let stopped = false;
   const wasRaw = input.isRaw;
   const wasPaused = input.isPaused();
+  const wasFlowing = input.readableFlowing;
   const inputListeners = new Map(input.eventNames().map(name => [name, input.listeners(name)]));
   let readlineListeners = [];
   const fits = () => output.columns >= MIN_COLUMNS && output.rows >= MIN_ROWS;
@@ -82,7 +83,9 @@ export function startTerminalGame({ input = process.stdin, output = process.stdo
     process.off('exit', onExit);
     try {
       input.setRawMode(Boolean(wasRaw));
-      if (wasPaused) input.pause();
+      // A fresh stdin has readableFlowing === null, not isPaused() === true.
+      // Leaving that stream resumed keeps the CLI alive after quitting.
+      if (wasPaused || wasFlowing !== true) input.pause();
     } finally {
       output.write('\x1b[?25h\x1b[?1049l');
       // The alternate screen disappears on exit. Keep the result visible on
