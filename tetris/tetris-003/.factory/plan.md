@@ -11,7 +11,7 @@ Seed: `/workspaces/architecture-review/tetris/spec.md`
 - [x] Add terminal keyboard input for movement, rotation, dropping, and quitting, with safe terminal cleanup on exit.
   - [x] Address validator finding in `src/terminal.js:65-67`: move the drop-and-lock game rule into `Game.hardDrop()` and have the space-key handler only call that action.
 - [x] Add automated tests for core game rules and the 24-row display limit.
-- [ ] Run tests and manually verify `npm start`, gameplay, controls, and game-over display.
+- [x] Run tests and manually verify `npm start`, gameplay, controls, and game-over display.
 
 ## Acceptance criteria
 
