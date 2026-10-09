@@ -10,7 +10,7 @@ Seed: `/workspaces/architecture-review/tetris/spec.md`
 - [x] Render the complete display within 24 terminal rows: use a 20-row board, two border rows, and two status/control rows; show game-over text in the status area.
 - [x] Add terminal keyboard input for movement, rotation, dropping, and quitting, with safe terminal cleanup on exit.
   - [x] Address validator finding in `src/terminal.js:65-67`: move the drop-and-lock game rule into `Game.hardDrop()` and have the space-key handler only call that action.
-- [ ] Add automated tests for core game rules and the 24-row display limit.
+- [x] Add automated tests for core game rules and the 24-row display limit.
 - [ ] Run tests and manually verify `npm start`, gameplay, controls, and game-over display.
 
 ## Acceptance criteria
