@@ -49,6 +49,9 @@ export function startTerminalGame({ input = process.stdin, output = process.stdo
   let timer;
   let stopped = false;
   const wasRaw = input.isRaw;
+  const wasPaused = input.isPaused();
+  const inputListeners = new Map(input.eventNames().map(name => [name, input.listeners(name)]));
+  let readlineListeners = [];
   const fits = () => output.columns >= MIN_COLUMNS && output.rows >= MIN_ROWS;
   const draw = () => {
     const frame = fits()
@@ -63,20 +66,37 @@ export function startTerminalGame({ input = process.stdin, output = process.stdo
     timer = setTimeout(() => {
       game.tick();
       draw();
-      schedule();
+      if (game.gameOver) stop(true);
+      else schedule();
     }, game.gravityInterval);
   };
-  const stop = () => {
+  const stop = (showGameOver = false) => {
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
     input.off('keypress', onKey);
+    for (const [name, listener] of readlineListeners) input.off(name, listener);
     output.off('resize', onResize);
-    input.setRawMode(Boolean(wasRaw));
-    input.pause();
-    output.write('\x1b[?25h\x1b[?1049l');
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+    process.off('exit', onExit);
+    try {
+      input.setRawMode(Boolean(wasRaw));
+      if (wasPaused) input.pause();
+    } finally {
+      output.write('\x1b[?25h\x1b[?1049l');
+      // The alternate screen disappears on exit. Keep the result visible on
+      // the normal screen, still using only the game's 24-row frame.
+      if (showGameOver && fits()) draw();
+    }
   };
+  const onSignal = signal => {
+    stop();
+    process.exitCode = signal === 'SIGINT' ? 130 : 143;
+  };
+  const onExit = () => stop();
   const onKey = (_text, key) => {
+    if (stopped) return;
     if (key?.name === 'q' || (key?.ctrl && key.name === 'c')) {
       stop();
       return;
@@ -86,7 +106,7 @@ export function startTerminalGame({ input = process.stdin, output = process.stdo
     if (result === 'update') {
       draw();
       // Preserve the gravity deadline during movement; adjust on level changes.
-      if (game.gameOver) clearTimeout(timer);
+      if (game.gameOver) stop(true);
     }
   };
   const onResize = () => {
@@ -94,13 +114,29 @@ export function startTerminalGame({ input = process.stdin, output = process.stdo
     schedule();
   };
 
-  emitKeypressEvents(input);
-  input.setRawMode(true);
-  input.on('keypress', onKey);
-  output.on('resize', onResize);
-  input.resume();
-  output.write('\x1b[?1049h\x1b[?25l');
-  draw();
-  schedule();
+  try {
+    emitKeypressEvents(input);
+    input.on('keypress', onKey);
+    // readline installs its own data/newListener handlers. Remove only the
+    // handlers added by this session, preserving the caller's listeners.
+    readlineListeners = input.eventNames().flatMap(name =>
+      input.listeners(name)
+        .filter(listener => listener !== onKey && !(inputListeners.get(name) || []).includes(listener))
+        .map(listener => [name, listener]),
+    );
+    output.on('resize', onResize);
+    process.on('SIGINT', onSignal);
+    process.on('SIGTERM', onSignal);
+    process.on('exit', onExit);
+    input.setRawMode(true);
+    input.resume();
+    output.write('\x1b[?1049h\x1b[?25l');
+    draw();
+    if (game.gameOver) stop(true);
+    else schedule();
+  } catch (error) {
+    stop();
+    throw error;
+  }
   return stop;
 }
