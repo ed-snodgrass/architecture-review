@@ -188,6 +188,53 @@ def _usage_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
     return lines
 
 
+def _adapter_guidance_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
+    """Suggest reviews only for supported arrangements, never architectural verdicts."""
+    lines = ['', '### Where an adapter could fit', '']
+    chains = _client_chains(client, usage)
+    if not chains:
+        lines.append('No supported caller was found within the analysis boundary. '
+                     'No specific adapter placement recommendation can be made from '
+                     'this evidence; the Feign dependency remains reported.')
+        return lines
+
+    # Repeated methods and call sites keep their evidence above, but need not
+    # repeat identical placement advice. Preserve the traversal's stable order.
+    suggestions = []
+    for chain in chains:
+        direct = _markdown(chain.steps[0].link.caller_type)
+        client_name = _markdown(chain.client_type)
+        conditions = []
+        for step in reversed(chain.steps):
+            connection = step.interface_connection
+            if connection:
+                conditions.append(
+                    f'verify that runtime wiring connects '
+                    f'{_markdown(step.link.caller_type)} through '
+                    f'{_markdown(connection.interface_type.qualified_name)} to '
+                    f'{_markdown(connection.implementation_type.qualified_name)}')
+        condition = ('First, ' + '; '.join(conditions) + '. '
+                     'If this possible wiring is confirmed, the following review applies. '
+                     if conditions else '')
+        if len(chain.steps) > 1:
+            upstream = _markdown(chain.steps[-1].link.caller_type)
+            advice = (f'{direct}, between {upstream} and {client_name}, is a candidate '
+                      'adapter location. Review whether its interface expresses the '
+                      'calling code\'s needs and keeps HTTP details out of calling code. '
+                      'Wrapping a Feign client alone does not establish adequate isolation.')
+        else:
+            advice = (f'Review whether {direct}, which calls {client_name} directly, '
+                      'also handles business decisions. If so, a domain-facing interface '
+                      'between that calling code and the Feign integration could isolate '
+                      'external-service and HTTP details. The direct caller may itself '
+                      'serve as an adapter; direct use alone is not an architectural defect.')
+        suggestion = '- **Suggestion:** ' + condition + advice
+        if suggestion not in suggestions:
+            suggestions.append(suggestion)
+    lines.extend(suggestions)
+    return lines
+
+
 def render_report(module: Module, clients: Iterable[FeignClient],
                   usage: UsageTraversal | None = None) -> str:
     """Render supplied source findings without writing or performing analysis."""
@@ -203,6 +250,12 @@ def render_report(module: Module, clients: Iterable[FeignClient],
     else:
         lines.extend(['No statically declared Feign outbound HTTP dependencies were found.',
                       'This does not mean the module makes no outbound calls by other means.'])
+    if usage is not None and ordered:
+        lines.extend(['', 'An adapter is code that keeps the details of communicating '
+                      'with an external service separate from the module\'s own work. '
+                      'A domain-facing interface expresses what the calling code needs '
+                      'without exposing HTTP client details. The guidance below is a '
+                      'suggestion, not an observed fact or a required change.'])
     for index, client in enumerate(ordered, 1):
         system = _markdown(_system_name(client))
         destination, confidence, reason = _destination(client)
@@ -222,6 +275,7 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                          'this does not prove that it has no operations.')
         if usage is not None:
             lines.extend(_usage_lines(client, usage))
+            lines.extend(_adapter_guidance_lines(client, usage))
     if usage is not None:
         relevant = [_relevant_diagnostics(client, usage) for client in ordered]
         diagnostics = tuple(item for item in usage.diagnostics
