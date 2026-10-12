@@ -180,6 +180,14 @@ Given('the target has an assembly line {string} with a test author before the do
 }\n`);
 });
 
+Given('an assembly line where test revision requests return to the test author', function () {
+  const file = join(this.target, '.assembly-lines', 'careful.dot');
+  const line = readFileSync(file, 'utf8')
+    .replace('  doer -> validator', '  doer -> test_author [label="tests_need_revision"]\n  doer -> validator')
+    .replace('  test_author -> doer', '  test_author -> doer');
+  writeFileSync(file, line);
+});
+
 Given('an assembly line where incorrect tests return to the test author', function () {
   const file = join(this.target, '.assembly-lines', 'careful.dot');
   const line = readFileSync(file, 'utf8')
@@ -560,9 +568,26 @@ const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
 fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
+fs.appendFileSync(path.join(workspace, 'doer-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 if (process.env.FACTORY_TEST_DOER_CHANGES_TEST === '1') fs.writeFileSync('alpha.test.js', 'module.exports = false;\n');
 fs.writeFileSync('alpha.txt', 'alpha\n');
-console.log(JSON.stringify({ task: 'alpha' }));
+const revisionMarker = path.join(workspace, 'doer-requested-test-revision');
+const requestsRevision = process.env.FACTORY_TEST_DOER_NEEDS_TEST_REVISION === '1'
+  && !fs.existsSync(revisionMarker);
+if (requestsRevision) {
+  fs.writeFileSync(revisionMarker, 'requested\n');
+  console.log(JSON.stringify({
+    task: 'alpha',
+    tests_need_revision: true,
+    findings: ['The test does not cover the required behavior.'],
+  }));
+} else {
+  console.log(JSON.stringify({
+    task: 'alpha',
+    tests_need_revision: false,
+    findings: [],
+  }));
+}
 `;
   const validator = String.raw`#!/usr/bin/env node
 const fs = require('node:fs');
@@ -605,6 +630,10 @@ Given('the test author has written the task\'s tests', function () {
 
 Given('the doer changes a test while implementing the task', function () {
   this.env.FACTORY_TEST_DOER_CHANGES_TEST = '1';
+});
+
+Given('the doer says the tests need revision with findings', function () {
+  this.env.FACTORY_TEST_DOER_NEEDS_TEST_REVISION = '1';
 });
 
 Given('the validator says the tests are incorrect the first time', function () {
@@ -690,6 +719,14 @@ Given('the validator is never satisfied', function () {
 
 Given('the validator is not satisfied the first time', function () {
   this.env.FACTORY_TEST_REJECT_FIRST = '1';
+});
+
+Given('the factory allows at most two attempts at a task', function () {
+  this.maxAttempts = 2;
+});
+
+Given('the factory allows at most one attempt at a task', function () {
+  this.maxAttempts = 1;
 });
 
 Given('the agent plans the tasks alpha and beta, and does one task a pass', function() {
@@ -1030,6 +1067,18 @@ Then("the test author has been called again with the validator's findings", func
   assert.match(prompts, /tests misread the task/i);
 });
 
+Then("the test author has been called again with the doer's findings", function () {
+  const calls = readFileSync(join(this.workspace, 'agent-calls'), 'utf8').trim().split('\n');
+  assert.equal(calls.filter(call => call === 'test_author').length, 2);
+  const prompts = readFileSync(join(this.workspace, 'test-author-args-log'), 'utf8');
+  assert.match(prompts, /test does not cover the required behavior/i);
+});
+
+Then('the doer attempt count starts over after the revised tests', function () {
+  const calls = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8').trim().split('\n');
+  assert.ok(calls.length >= 2);
+  assert.equal(this.result.status, 0, this.result.stderr);
+});
 Then('the run finishes after the corrected tests pass', function () {
   assert.equal(this.result.status, 0, this.result.stderr);
 });
@@ -1349,7 +1398,33 @@ Then('the run log contains a doer action prompted by {string}', function (cataly
 Then('the run log contains a date, machine name, catalyst, and summary on every line', function () {
   const lines = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8').trim().split('\n');
   assert.ok(lines.length > 0);
-  assert.ok(lines.every(line => /^\d{4}-\d{2}-\d{2}T[^ ]+ \[(planner|doer|validator)\] Catalyst: .+\. .+$/.test(line)));
+  assert.ok(lines.every(line => /^\d{4}-\d{2}-\d{2}T[^ ]+ (?:\[(planner|doer|validator)\] Catalyst: .+\. .+|\[exit\] status=(?:successful|failed) .+|\[doer\] Reattempt \d+)$/.test(line)));
+});
+
+Then('the run log uses exact machine names for catalysts', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.match(log, /\[doer\] Catalyst: planner\./);
+  assert.doesNotMatch(log, /Catalyst: Planner|Catalyst: Validator Feedback/);
+});
+
+Then('the run log records the run execution timestamp', function () {
+  const lines = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8').trim().split('\n');
+  assert.ok(lines.every(line => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /.test(line)));
+});
+
+Then('the run log records the successful exit', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.match(log, /\[exit\] status=successful reason="assembly line finished"/);
+});
+
+Then('the run log records the doer reattempt', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.match(log, /\[doer\] Reattempt 2/);
+});
+
+Then('the run log records the failed exit and reason', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.match(log, /\[exit\] status=failed reason=.*task hit its limit/);
 });
 
 Then('the run log does not exist', function () {

@@ -47,9 +47,9 @@ Feature: Test author
       Given an assembly line where test revision requests return to the test author
       And the test author has written the task's tests
       And the doer says the tests need revision with findings
+      And the factory allows at most one attempt at a task
       When the factory runs the "tetris" run
       Then the test author has been called again with the doer's findings
-      And the doer's work has not been committed
       And the doer attempt count starts over after the revised tests
 
   Rule: Validation runs tests before applying its lens

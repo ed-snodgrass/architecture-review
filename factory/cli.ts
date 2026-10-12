@@ -6,10 +6,21 @@ type Edge = { from: string; to: string; label?: string };
 type Outcome = Record<string, unknown>;
 type Config = { harness?: string; lens?: string };
 type Settings = { target: string; seed: string; line: string };
+let activeLogFile: string | undefined;
 const args = process.argv.slice(2);
 const factory = dirname(resolve(process.argv[1]));
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
-function fail(message: string): never { console.error(message); process.exit(1); }
+function timestamp(): string { return new Date().toISOString(); }
+function appendLog(entry: string): void {
+  if (!activeLogFile) return;
+  mkdirSync(dirname(activeLogFile), { recursive: true });
+  appendFileSync(activeLogFile, `${timestamp()} ${entry}\n`);
+}
+function fail(message: string): never {
+  appendLog(`[exit] status=failed reason=${JSON.stringify(message)}`);
+  console.error(message);
+  process.exit(1);
+}
 function printHelp(): void {
   console.log(`Factory command
 
@@ -43,6 +54,7 @@ const quiet = args.includes('--quiet');
 const runDirectory = runName ? resolve(factory, 'runs', runName) : undefined;
 const settingsFile = runDirectory && resolve(runDirectory, 'run.json');
 const logFile = runDirectory && resolve(runDirectory, 'log.md');
+activeLogFile = runName && !checking && !quiet ? logFile : undefined;
 const saved = settingsFile && existsSync(settingsFile)
   ? JSON.parse(readFileSync(settingsFile, 'utf8')) as Settings
   : undefined;
@@ -129,14 +141,15 @@ function testsChanged(before: Map<string, string>): boolean {
 }
 function route(name: string, result: Outcome): string {
   const outgoing = edges.filter(e => e.from === name);
-  const direct = outgoing.find(e => !e.label);
-  if (direct) return direct.to;
   for (const edge of outgoing) {
+    if (!edge.label) continue;
     const negative = edge.label!.startsWith('not ');
     const field = edge.label!.replace(/^not /, '');
     if (!(field in result)) fail(`The result of ${name} has no field "${field}"`);
     if (Boolean(result[field]) !== negative) return edge.to;
   }
+  const direct = outgoing.find(e => !e.label);
+  if (direct) return direct.to;
   fail(`The result of ${name} did not select an edge`);
 }
 let findings: unknown;
@@ -145,16 +158,17 @@ let attempts = 0;
 function prompt(name: string): string {
   const wanted = fields(name);
   const answer = wanted.length
-    ? `Finish with one JSON line containing ${wanted.map(f => `"${f}"`).join(' and ')}${name === 'validator' ? ' and "findings"' : ''}.`
+    ? `Finish with one JSON line containing ${wanted.map(f => `"${f}"`).join(' and ')}${name === 'validator' || (name === 'doer' && wanted.includes('findings')) ? ' and "findings"' : ''}.`
     : 'Finish with one JSON line describing the work.';
   if (name === 'planner') return completingTask
     ? `Read the plan at ${JSON.stringify(plan)}.\nThe current task's validated work has been committed.\nMark the current task done, and mark only that task. Inspect the updated plan. Set "complete" to false when any task remains unfinished, and true only when every task is finished.\n${answer}`
     : `Read the seed at ${JSON.stringify(seed)}.\nIf no plan exists at ${JSON.stringify(plan)}, write one there.\nInspect the plan after any write. Set "complete" to false whenever the plan has any unfinished task, and true only when every task is finished. Do not perform a task.\n${answer}`;
   if (name === 'doer') {
     const tests = testFiles();
-    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done. Do not modify test files.${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
+    const revisionRoute = edges.some(e => e.from === 'doer' && e.to === 'test_author' && e.label === 'tests_need_revision');
+    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done. Do not modify test files.${revisionRoute ? '\nIf the tests are missing or insufficient, leave them unchanged and return "tests_need_revision": true with the reason in "findings"; do not implement around a faulty test.' : ''}${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
   }
-  if (name === 'test_author') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nCreate objective tests for the first unfinished task when tests are applicable. If no tests are applicable, say so in your result. Do not implement the task.${findings === undefined ? '' : `\nThe validator reported these findings about the tests:\n${JSON.stringify(findings)}\nCorrect the tests and address each finding.`}\n${answer}`;
+  if (name === 'test_author') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nCreate objective tests for the first unfinished task when tests are applicable. If no tests are applicable, say so in your result. Do not implement the task.${findings === undefined ? '' : `\nThe previous machine reported these findings about the tests:\n${JSON.stringify(findings)}\nCorrect the tests and address each finding.`}\n${answer}`;
   if (name === 'validator') {
     const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
     return `Run the current task's tests first. Confirm they pass, then review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
@@ -166,7 +180,7 @@ function execute(name: string, catalyst: string): Outcome {
   if (execution.error) fail(`Could not run the ${name === 'planner' ? 'agent' : name}`);
   process.stdout.write(execution.stdout);
   const outcome = parseResult(execution.stdout) ?? fail(`Could not read the ${name === 'planner' ? "agent's" : `${name}'s`} result`);
-  if (!quiet) appendFileSync(logFile!, `${new Date().toISOString()} [${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}\n`);
+  if (!quiet) appendLog(`[${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}`);
   return outcome;
 }
 function commitWork(): void {
@@ -185,12 +199,17 @@ while (machine !== 'finish') {
   if (machine === 'doer' && testsChanged(testsBefore!)) fail('The doer changed tests');
   const next = route(machine, outcome);
   if (machine === 'validator') findings = outcome.findings;
+  if (machine === 'doer' && next === 'test_author') findings = outcome.findings;
   if ((machine === 'doer' || machine === 'validator') && next === 'planner') {
     commitWork(); completingTask = true; findings = undefined; attempts = 0;
+  } else if (machine === 'test_author' && next === 'doer') {
+    attempts = 0;
+    completingTask = false;
   } else if (machine === 'planner') completingTask = false;
-  catalyst = machine === 'validator' && next === 'doer'
-    ? 'Validator Feedback'
-    : machine[0].toUpperCase() + machine.slice(1);
+  if (machine === 'test_author' && next === 'doer') findings = undefined;
+  catalyst = machine;
+  if (!quiet && machine === 'doer' && attempts > 1) appendLog(`[doer] Reattempt ${attempts}`);
   machine = next;
 }
+if (!quiet) appendLog('[exit] status=successful reason="assembly line finished"');
 console.log('factory stopped');

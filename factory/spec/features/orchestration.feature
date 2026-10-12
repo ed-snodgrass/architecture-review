@@ -159,8 +159,8 @@ Feature: Orchestration
 
     Example: A run logs reattempts and an error exit
       Given a plan with three tasks, none of them done
-      And the validator is not satisfied the first time
-      And the factory allows at most one attempt at a task
+      And the validator is never satisfied
+      And the factory allows at most two attempts at a task
       When the factory runs the "tetris" run
       Then the run log records the doer reattempt
       And the run log records the failed exit and reason

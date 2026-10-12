@@ -47,7 +47,8 @@ doer reattempts, and every normal or error exit.
 
 - Existing test-author and orchestration behavior remains valid.
 - A compliant doer can request revised tests through an explicit route.
-- A doer that edits tests is still rejected and its work is not committed.
+- A doer that edits tests is still rejected; a test-revision handoff does not
+  commit its incomplete attempt.
 - Test-author feedback includes the doer's `findings`.
 - The attempt counter resets after test revision.
 - Every run-log line has a UTC ISO 8601 timestamp.
