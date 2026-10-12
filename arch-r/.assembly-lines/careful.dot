@@ -3,6 +3,7 @@ digraph assembly_line {
   planner -> test_author [label="not complete"]
   planner -> finish      [label="complete"]
   test_author -> doer
+  doer -> test_author [label="tests_need_revision"]
   doer -> validator
   validator -> doer      [label="not satisfied"]
   validator -> test_author [label="tests incorrect"]

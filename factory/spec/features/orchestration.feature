@@ -142,6 +142,29 @@ Feature: Orchestration
       And there are no new commits
       And the factory has stopped
 
+  Rule: Run logging records machine names, attempts and exits
+
+    Each run execution appends UTC ISO 8601 timestamps to its log. Machine
+    catalysts use their exact assembly-line names. The first doer execution
+    is unnumbered; later doer executions are logged as reattempts. Normal
+    completion and error exits are both recorded with their reason and
+    status.
+
+    Example: A run logs its machine catalysts and completion
+      Given a plan with three tasks, none of them done
+      When the factory runs the "tetris" run
+      Then the run log uses exact machine names for catalysts
+      And the run log records the run execution timestamp
+      And the run log records the successful exit
+
+    Example: A run logs reattempts and an error exit
+      Given a plan with three tasks, none of them done
+      And the validator is not satisfied the first time
+      And the factory allows at most one attempt at a task
+      When the factory runs the "tetris" run
+      Then the run log records the doer reattempt
+      And the run log records the failed exit and reason
+
   Rule: The line routes on each machine's result
 
     Each machine answers with a result: JSON describing the job it did.
