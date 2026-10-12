@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 class AcceptanceTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="arch_r_tests_")
         self.addCleanup(self.temp.cleanup)
         self.caller = Path(self.temp.name)
         self.module = self.caller / "modules" / "orders"
@@ -52,12 +52,16 @@ public interface InventoryClient {
 }
 ''')
         report = self.successful_report("modules/orders")
+        # Paths are rendered as Markdown text, not raw filesystem strings.
+        escaped_module_path = ''.join(
+            f'&#{ord(char)};' if char in '&<>`*_[]\\|"' or ord(char) < 32
+            or ord(char) == 127 else char for char in str(self.module))
         for expected in (
             "order-service makes an outbound HTTP connection to inventory",
             "https://inventory.example", "High confidence", "GET /items/{id}",
             "src/main/java/InventoryClient.java:3", "src/main/java/InventoryClient.java:5",
             'System(module, "order-service"', 'Container(feign_1, "InventoryClient"',
-            'System_Ext(external_1, "inventory"', str(self.module),
+            'System_Ext(external_1, "inventory"', escaped_module_path,
             "did not inspect callers", "domain-facing port or adapter",
         ):
             self.assertIn(expected, report)
