@@ -1346,6 +1346,55 @@ Then('no new commit contains the work for the first task', function () {
   assert.doesNotMatch(files, /(^|\/)alpha\.txt$/m);
 });
 
+Then('the work commits name the machine that caused each commit', function () {
+  const messages = execFileSync('git', ['log', '--format=%s', this.initialCommit + '..HEAD'], {
+    cwd: this.target,
+    encoding: 'utf8',
+  }).trim().split('\n').filter(Boolean);
+  assert.ok(messages.length > 0);
+  assert.ok(messages.every(message => /^Factory work: (doer|validator)$/.test(message)));
+});
+
+Then('the run log records each work commit', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  const commits = execFileSync('git', ['log', '--format=%H', this.initialCommit + '..HEAD'], {
+    cwd: this.target,
+    encoding: 'utf8',
+  }).trim().split('\n').filter(Boolean);
+  for (const hash of commits) assert.match(log, new RegExp(`\\[commit\\].*hash=${hash}\\b`));
+});
+
+Then('every work commit message starts with {string}', function (prefix: string) {
+  const messages = execFileSync('git', ['log', '--format=%s', this.initialCommit + '..HEAD'], {
+    cwd: this.target,
+    encoding: 'utf8',
+  }).trim().split('\n').filter(Boolean);
+  assert.ok(messages.length > 0);
+  assert.ok(messages.every(message => message.startsWith(prefix)));
+});
+
+Then('every work commit is recorded in the run log with its hash', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  const commits = execFileSync('git', ['log', '--format=%H', this.initialCommit + '..HEAD'], {
+    cwd: this.target,
+    encoding: 'utf8',
+  }).trim().split('\n').filter(Boolean);
+  assert.ok(commits.length > 0);
+  for (const hash of commits) assert.match(log, new RegExp(`\\[commit\\].*hash=${hash}\\b`));
+});
+
+Then('the run log records no work commit', function () {
+  const log = existsSync(join(this.workspace, 'runs', this.runName, 'log.md'))
+    ? readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8')
+    : '';
+  assert.doesNotMatch(log, /^\S+ \[commit\]/m);
+});
+
+Then('the run log records no work commit for the handoff', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.doesNotMatch(log, /machine=doer/);
+});
+
 Then('it reports that the result of validator has no field {string}', function (field: string) {
   assert.match(this.result.stdout + this.result.stderr, new RegExp(`result of validator has no field ["']${field}`, 'i'));
 });
@@ -1398,7 +1447,7 @@ Then('the run log contains a doer action prompted by {string}', function (cataly
 Then('the run log contains a date, machine name, catalyst, and summary on every line', function () {
   const lines = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8').trim().split('\n');
   assert.ok(lines.length > 0);
-  assert.ok(lines.every(line => /^\d{4}-\d{2}-\d{2}T[^ ]+ (?:\[(planner|doer|validator)\] Catalyst: .+\. .+|\[exit\] status=(?:successful|failed) .+|\[doer\] Reattempt \d+)$/.test(line)));
+  assert.ok(lines.every(line => /^\d{4}-\d{2}-\d{2}T[^ ]+ (?:\[(planner|doer|validator)\] Catalyst: .+\. .+|\[commit\] machine=(?:doer|validator) hash=\S+ message="[^"]+"|\[exit\] status=(?:successful|failed) .+|\[doer\] Reattempt \d+)$/.test(line)));
 });
 
 Then('the run log uses exact machine names for catalysts', function () {

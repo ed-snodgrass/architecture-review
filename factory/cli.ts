@@ -183,11 +183,14 @@ function execute(name: string, catalyst: string): Outcome {
   if (!quiet) appendLog(`[${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}`);
   return outcome;
 }
-function commitWork(): void {
+function commitWork(causingMachine: string): void {
   const paths = ['.', ':(exclude).assembly-lines'];
   execFileSync('git', ['add', '--', ...paths], { cwd: target });
   if (spawnSync('git', ['diff', '--cached', '--quiet', '--', ...paths], { cwd: target }).status === 1) {
-    execFileSync('git', ['commit', '--only', '-m', 'Factory work', '--', ...paths], { cwd: target });
+    const message = `Factory work: ${causingMachine}`;
+    execFileSync('git', ['commit', '--only', '-m', message, '--', ...paths], { cwd: target });
+    const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8' }).trim();
+    if (!quiet) appendLog(`[commit] machine=${causingMachine} hash=${hash} message=${JSON.stringify(message)}`);
   }
 }
 let machine = edges.find(e => e.from === 'start')?.to ?? fail('The assembly line has no start');
@@ -201,7 +204,7 @@ while (machine !== 'finish') {
   if (machine === 'validator') findings = outcome.findings;
   if (machine === 'doer' && next === 'test_author') findings = outcome.findings;
   if ((machine === 'doer' || machine === 'validator') && next === 'planner') {
-    commitWork(); completingTask = true; findings = undefined; attempts = 0;
+    commitWork(machine); completingTask = true; findings = undefined; attempts = 0;
   } else if (machine === 'test_author' && next === 'doer') {
     attempts = 0;
     completingTask = false;
