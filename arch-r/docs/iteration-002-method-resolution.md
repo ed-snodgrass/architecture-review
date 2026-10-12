@@ -226,3 +226,24 @@ accessibility across packages without compiling or executing Java. No test
 revision is needed for this subtask. Test files, production code, and plan
 checkboxes were left unchanged; the subtask remains unchecked as requested.
 
+## Try-with-resources lifetime: current task verification
+
+The first unfinished subtask is ending resource-variable shadowing at the try
+body. The supplied `archr/indexing.py` implementation already creates a
+separate resource scope spanning the header and try body, with its inclusive
+end at the body's closing token. Resource names therefore stop shadowing
+fields before catches, finally blocks, and following statements; enclosing
+parameter/local scopes remain active. No additional production change is
+necessary.
+
+The supplied tests cover annotated/final and multiple resources, calls in
+initializers, explicit `this`, catch-name reuse, nested try statements,
+enclosing local/parameter shadowing, and existing-field resources. No missing
+coverage or faulty assertion was identified for this subtask.
+
+Verification: `python3 -m unittest tests.test_resource_scope -v` passed all four
+tests; `python3 -m unittest discover -s tests` passed all 128 tests. No test
+files, production code, or plan checkboxes were changed. The pre-existing
+untracked `tests/test_resource_scope.py` was preserved. No analyzed Java source
+was compiled, executed, or modified. This subtask remains unchecked as requested.
+
