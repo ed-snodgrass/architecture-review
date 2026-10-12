@@ -212,3 +212,17 @@ comparison, and block/loop shadowing regressions. No production code, tests,
 or plan checkboxes were changed in this run; no Java source was compiled or
 executed. The task remains unfinished as requested.
 
+## Cross-package fixture accessibility: current task verification
+
+The first unchecked plan subtask specifically concerns the accessibility of
+`remote.Client` to the two `shop.GenericClient` fixtures. The supplied
+`client()` builder now declares `public interface Client`, so the requested
+correction is already present and no production workaround is necessary.
+
+Verification: `python3 -m unittest discover -s tests -q` passed all 120 tests,
+including both checks in the supplied `tests/test_resolution_fixture_validity.py`.
+Those checks exercise the actual fixture builders and verify public interface
+accessibility across packages without compiling or executing Java. No test
+revision is needed for this subtask. Test files, production code, and plan
+checkboxes were left unchanged; the subtask remains unchecked as requested.
+
