@@ -121,3 +121,18 @@ pending class-literal subtask; no production correction was needed. The full
 unchecked subtask under the class-literal subtask in
 `factory/runs/arch-r-002/plan.md`. No task or subtask was marked done, and later
 pending tasks were not taken on.
+
+## Current class-literal task verification
+
+Re-read the iteration 002 seed and current plan. The first unfinished task
+remains the class-literal distinction, already implemented in
+`archr/indexing.py`: a dot-prefixed `class` token is not a declaration, and
+local declaration skipping requires a following identifier. No production
+change is needed; later tasks were not taken on.
+
+`PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -v` now passes all
+62 supplied tests. This includes the additional control-header regression:
+class literals in `if` and `synchronized` headers preserve block invocations,
+exclude local-class method bodies, and retain subsequent calls with exact
+citations. Test files (including pre-existing working-tree additions) and the
+plan were left unchanged; the task remains unchecked.

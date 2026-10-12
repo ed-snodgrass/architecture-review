@@ -233,6 +233,36 @@ class LiteralForms {{
                                   for c in owner.methods[1].invocations],
                                  [('client', 'later', 12)])
 
+    def test_class_literals_in_control_headers_preserve_block_calls_and_local_type_boundary(self):
+        relative = 'src/main/java/shop/LiteralControl.java'
+        for header in ('if (remote.Client.class != null)',
+                       'synchronized (remote.Client.class)'):
+            with self.subTest(header=header):
+                self.put(relative, f'''package shop;
+class LiteralControl {{
+    remote.Client client;
+    void run() {{
+        {header} {{
+            client.inside();
+            class Local {{
+                void run() {{ client.localOnly(); }}
+            }}
+            this.client.afterLocal();
+        }}
+        client.afterBlock();
+    }}
+}}
+''')
+                owner = self.types()['shop.LiteralControl']
+                self.assertEqual([(m.name, m.parameter_count, m.source_path, m.line)
+                                  for m in owner.methods], [('run', 0, relative, 4)])
+                self.assertEqual([(c.receiver, c.method_name, c.argument_count,
+                                   c.source_path, c.line)
+                                  for c in owner.methods[0].invocations],
+                                 [('client', 'inside', 0, relative, 6),
+                                  ('this.client', 'afterLocal', 0, relative, 10),
+                                  ('client', 'afterBlock', 0, relative, 12)])
+
     def test_class_literals_in_arguments_do_not_hide_nested_or_following_calls(self):
         relative = 'src/main/java/shop/LiteralArguments.java'
         self.put(relative, '''package shop;
