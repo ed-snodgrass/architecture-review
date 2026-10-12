@@ -421,6 +421,83 @@ class Caller {{
                                       iterable.target_method.parameter_count), (method, 0))
                     self.assertEqual(result, self.resolve())
 
+    def test_enhanced_for_entire_iterable_precedes_annotated_array_variable_scope(self):
+        self.client('Client[][] rows(Client value); Client clone();')
+        for declarator in (
+                'remote.Client[] client',
+                'remote.Client client @flags.Dimension []',
+                '@flags.Mark(values = {"a", "b"}) final remote.Client[] client'):
+            with self.subTest(declarator=declarator):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run() {{
+        for ({declarator} :
+                client.rows(client.clone())) {{
+            client.clone();
+            this.client.clone();
+        }}
+        client.clone();
+    }}
+}}
+''')
+                # Both the outer invocation and its argument use the field:
+                # the loop variable is not in scope anywhere in the iterable.
+                self.assert_receiver_partition(
+                    path, [('client', 6), ('client', 6), ('this.client', 8),
+                           ('client', 10)], [('client', 7)])
+                result = self.resolve()
+                self.assertEqual(
+                    [(link.target_method.name, link.target_method.parameter_count)
+                     for link in result.links],
+                    [('rows', 1), ('clone', 0), ('clone', 0), ('clone', 0)])
+                self.assertEqual(result, self.resolve())
+
+    def test_enhanced_for_unbraced_conditional_body_ends_before_next_loop(self):
+        self.client('Client[] items(); void lookup(String id);')
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run(boolean ready) {
+        for (remote.Client client : client.items())
+            if (ready)
+                client.lookup("loop variable");
+            else
+                this.client.lookup("field");
+        for (remote.Client client : client.items())
+            client.lookup("second loop variable");
+        client.lookup("field restored");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('client', 5), ('this.client', 9), ('client', 10),
+                   ('client', 12)], [('client', 7), ('client', 11)])
+
+    def test_enhanced_for_iterable_keeps_outer_local_until_its_block_ends(self):
+        self.client('Client[] items(); void lookup(String id);')
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        {
+            remote.Client client = null;
+            for (remote.Client item : client.items()) {
+                item.lookup("loop variable");
+                this.client.lookup("field");
+            }
+            client.lookup("outer local remains");
+        }
+        for (remote.Client client : client.items())
+            client.lookup("loop variable");
+        client.lookup("field restored");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('this.client', 9), ('client', 13), ('client', 15)],
+            [('client', 7), ('item', 8), ('client', 11), ('client', 14)])
+
     def test_nested_enhanced_for_iterable_restores_outer_loop_then_field(self):
         self.client('Client[] items(); void lookup(String id);')
         path = self.put('src/main/java/shop/Caller.java', '''package shop;

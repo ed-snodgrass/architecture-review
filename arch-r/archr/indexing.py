@@ -133,6 +133,20 @@ def _initializer_type_arguments_end(tokens: list[Token], start: int) -> int | No
     return None
 
 
+def _array_dimensions_end(tokens: list[Token], start: int) -> int:
+    """Skip array dimensions, including Java type-use annotations."""
+    i = start
+    while i < len(tokens):
+        dimension = i
+        while dimension < len(tokens) and tokens[dimension].text == '@':
+            _, _, dimension = _annotation(tokens, dimension)
+        if (dimension + 1 >= len(tokens) or tokens[dimension].text != '[' or
+                tokens[dimension + 1].text != ']'):
+            break
+        i = dimension + 2
+    return i
+
+
 def _local_declarations(tokens: list[Token], start: int) -> dict[int, str]:
     """Locate declarator names, including annotations and multiple locals.
 
@@ -160,14 +174,12 @@ def _local_declarations(tokens: list[Token], start: int) -> dict[int, str]:
         while i < len(tokens) and depth:
             depth += (tokens[i].text == '<') - (tokens[i].text == '>')
             i += 1
-    while i + 1 < len(tokens) and tokens[i].text == '[' and tokens[i + 1].text == ']':
-        i += 2
+    i = _array_dimensions_end(tokens, i)
     names = {}
     while i + 1 < len(tokens) and _IDENTIFIER.fullmatch(tokens[i].text):
         name_index = i
         i += 1
-        while i + 1 < len(tokens) and tokens[i].text == '[' and tokens[i + 1].text == ']':
-            i += 2
+        i = _array_dimensions_end(tokens, i)
         if i >= len(tokens) or tokens[i].text not in ('=', ';', ',', ':', ')'):
             break
         names[name_index] = tokens[name_index].text
@@ -254,11 +266,7 @@ def _invocations(tokens: list[Token], path: str,
                 scopes.append((names, _statement_end(tokens, header_end + 1)))
                 declarations = _local_declarations(tokens, i + 2)
                 for name_index, name in declarations.items():
-                    separator = name_index + 1
-                    while (separator + 1 < header_end and
-                           tokens[separator].text == '[' and
-                           tokens[separator + 1].text == ']'):
-                        separator += 2
+                    separator = _array_dimensions_end(tokens, name_index + 1)
                     if separator < header_end and tokens[separator].text == ':':
                         # The iterable is evaluated outside the loop variable's
                         # scope. Activate its name only when the body begins.
