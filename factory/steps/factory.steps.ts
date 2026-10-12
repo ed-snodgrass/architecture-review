@@ -850,6 +850,14 @@ When('the factory runs', function () {
   runFactory.call(this);
 });
 
+When('the factory runs with {string}', function (argument: string) {
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), argument], {
+    cwd: this.workspace,
+    env: this.env ?? process.env,
+    encoding: 'utf8',
+  });
+});
+
 When('the factory runs the {string} run', function (run: string) {
   this.runName = run;
   this.plan = join(this.workspace, 'runs', run, 'plan.md');
@@ -1160,6 +1168,38 @@ Then('the factory has stopped', function () {
   assert.equal(this.result.error, undefined);
   assert.equal(this.result.signal, null);
   assert.notEqual(this.result.status, null);
+});
+
+Then('the factory exits successfully', function () {
+  assert.equal(this.result.status, 0, this.result.stderr);
+});
+
+Then('the help output describes the factory command', function () {
+  assert.match(this.result.stdout, /Factory command/);
+});
+
+Then('the help output describes {string}', function (argument: string) {
+  assert.match(this.result.stdout, new RegExp(argument.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+Then('the help output says those settings are required for a new run', function () {
+  assert.match(this.result.stdout, /New runs require --run, --target, --line, and --seed/i);
+});
+
+Then('the help output says the default harness is {string}', function (harness: string) {
+  assert.match(this.result.stdout, new RegExp(`default: ${harness}`));
+});
+
+Then('the help output describes machine-specific harness overrides', function () {
+  assert.match(this.result.stdout, /Machine-specific harness override/);
+});
+
+Then('the help output says the default maximum attempts is {string}', function (attempts: string) {
+  assert.match(this.result.stdout, new RegExp(`Maximum doer attempts; default: ${attempts}`));
+});
+
+Then('the help output says logging is enabled by default', function () {
+  assert.match(this.result.stdout, /logging is enabled by default/i);
 });
 
 Then(

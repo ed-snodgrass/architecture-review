@@ -10,6 +10,32 @@ const args = process.argv.slice(2);
 const factory = dirname(resolve(process.argv[1]));
 const option = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
 function fail(message: string): never { console.error(message); process.exit(1); }
+function printHelp(): void {
+  console.log(`Factory command
+
+Usage:
+  bin/factory --run <name> --target <path> --line <name> --seed <path>
+  bin/factory --run <name>
+
+New runs require --run, --target, --line, and --seed. Saved runs can be
+resumed with --run alone.
+
+Arguments:
+  --run <name>                 Named run to start or resume.
+  --target <path>              Target folder; required for a new run.
+  --seed <path>                Seed file; required for a new run.
+  --line <name>                Target assembly line; required for a new run.
+  --harness <command>          Planner harness; default: pi.
+  --<machine>-harness <command> Machine-specific harness override; default: pi
+                               unless the machine configuration names one.
+  --validator-lens <lens>      Validator lens; default: configured lens.
+  --max-attempts <number>      Maximum doer attempts; default: 3.
+  --quiet                      Disable run logging; logging is enabled by default.
+  --check-assembly-line        Validate an assembly line without running it.
+  --help                       Show this help and exit successfully.`);
+}
+
+if (args.includes('--help')) { printHelp(); process.exit(0); }
 
 const runName = option('--run');
 const checking = args.includes('--check-assembly-line');
