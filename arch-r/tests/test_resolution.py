@@ -870,6 +870,58 @@ class Caller {
             path, [('this.client', 7), ('client', 9), ('client', 11)],
             [('client', 6)])
 
+    def test_sibling_catches_can_reuse_parameter_name_without_leaking_scope(self):
+        self.client()
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        try { client.lookup("try field"); }
+        catch (remote.FirstFailure client) {
+            client.lookup("first parameter");
+            this.client.lookup("first explicit field");
+        } catch (remote.SecondFailure client) {
+            client.lookup("second parameter");
+            this.client.lookup("second explicit field");
+        } finally {
+            client.lookup("finally field");
+        }
+        client.lookup("after field");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('client', 5), ('this.client', 8), ('this.client', 11),
+                   ('client', 13), ('client', 15)],
+            [('client', 7), ('client', 10)])
+        self.assertEqual(self.resolve(), self.resolve())
+
+    def test_catch_exit_restores_field_before_enclosing_block_ends(self):
+        self.client()
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        {
+            try {} catch (remote.Failure client) {
+                client.lookup("first parameter");
+                this.client.lookup("explicit field");
+            }
+            client.lookup("field between tries");
+            try {} catch (remote.FirstFailure | remote.SecondFailure client) {
+                client.lookup("second parameter");
+            }
+            client.lookup("field after second catch");
+        }
+        client.lookup("field after block");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('this.client', 8), ('client', 10), ('client', 14),
+                   ('client', 16)],
+            [('client', 7), ('client', 12)])
+
     def test_catch_exit_restores_enclosing_local_not_field(self):
         self.client()
         path = self.put('src/main/java/shop/Caller.java', '''package shop;

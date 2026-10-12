@@ -138,3 +138,22 @@ Verification: all 50 method-resolution tests and all 114 suite tests pass
 `python3 -m unittest discover -s tests -q`). No production code or plan
 checkboxes were changed; the task remains unfinished. No Java fixture was
 compiled or executed.
+
+## Catch-parameter lifetime: current task verification
+
+Re-read the iteration 002 seed and plan. The first unchecked task remains
+catch-parameter lifetime restoration. The supplied production implementation
+already creates a dedicated catch scope ending at the catch body, so no
+additional production change is necessary.
+
+The current supplied tests cover ordinary, final, annotated, and multi-catch
+parameters; explicit field access; nested and successive catches; sibling
+catches reusing a name; restoration before the enclosing block ends; and
+preservation of enclosing locals and method parameters. The nested-catch
+fixture uses distinct parameter names, resolving the earlier fixture defect.
+No test revision is needed for this task.
+
+Verification: `python3 -m unittest discover -s tests -v` passed all 116 tests.
+Test files (including pre-existing working-tree changes) and the plan were
+left unchanged. No Java source was compiled or executed. The task remains
+unchecked as requested; this run only adds this verification record.
