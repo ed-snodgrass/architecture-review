@@ -21,19 +21,56 @@ export function createGame({ pieceSequence, fallIntervalMs = 1000 } = {}) {
        pieceSequence.some(type => !names.includes(type)))) {
     throw new TypeError('pieceSequence must contain valid tetromino names');
   }
-  const type = pieceSequence?.[0] ?? names[Math.floor(Math.random() * names.length)];
-  const shape = SHAPES[type];
-  return {
+  const game = {
     board: Array.from({ length: HEIGHT }, () => Array(WIDTH).fill(null)),
-    active: {
-      type,
-      x: Math.floor((WIDTH - shape.size) / 2),
-      y: 0,
-      cells: shape.cells.map(([x, y]) => ({ x, y })),
-    },
+    active: null,
+    pieceSequence: pieceSequence ? [...pieceSequence] : null,
+    pieceIndex: 0,
+    score: 0,
+    gameOver: false,
     fallIntervalMs,
     elapsedMs: 0,
   };
+  spawnPiece(game);
+  return game;
+}
+
+function spawnPiece(game) {
+  const names = Object.keys(SHAPES);
+  // Repeat supplied sequences for deterministic games of any length.
+  const type = game.pieceSequence
+    ? game.pieceSequence[game.pieceIndex++ % game.pieceSequence.length]
+    : names[Math.floor(Math.random() * names.length)];
+  const shape = SHAPES[type];
+  game.active = {
+    type,
+    x: Math.floor((WIDTH - shape.size) / 2),
+    y: 0,
+    cells: shape.cells.map(([x, y]) => ({ x, y })),
+  };
+  game.gameOver = !isLegal(game, game.active);
+}
+
+function lockPiece(game) {
+  for (const { x, y } of getActiveCells(game)) {
+    game.board[y][x] = game.active.type;
+  }
+  clearCompletedLines(game);
+  // Clearing must happen before checking whether the next spawn is blocked.
+  spawnPiece(game);
+}
+
+function clearCompletedLines(game) {
+  const survivors = game.board.filter(row => row.some(cell => cell === null));
+  const cleared = HEIGHT - survivors.length;
+  if (cleared > 0) {
+    game.board = [
+      ...Array.from({ length: cleared }, () => Array(WIDTH).fill(null)),
+      ...survivors,
+    ];
+    // Classic line-clear rewards; score persists across spawns.
+    game.score += [0, 100, 300, 500, 800][cleared] ?? cleared * 200;
+  }
 }
 
 function absoluteCells(active) {
@@ -50,6 +87,7 @@ function isLegal(game, active) {
 }
 
 export function move(game, dx, dy) {
+  if (game.gameOver) return false;
   if (!Number.isInteger(dx) || !Number.isInteger(dy) || Math.abs(dx) + Math.abs(dy) !== 1) {
     return false;
   }
@@ -60,6 +98,7 @@ export function move(game, dx, dy) {
 }
 
 export function rotate(game) {
+  if (game.gameOver) return false;
   const size = SHAPES[game.active.type].size;
   const candidate = {
     ...game.active,
@@ -72,14 +111,14 @@ export function rotate(game) {
 }
 
 export function tick(game, elapsedMs) {
+  if (game.gameOver) return;
   if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
     throw new RangeError('elapsedMs must be a nonnegative finite number');
   }
   const total = game.elapsedMs + elapsedMs;
   const steps = Math.floor(total / game.fallIntervalMs);
   game.elapsedMs = total % game.fallIntervalMs;
-  for (let step = 0; step < steps; step++) {
-    // Locking and spawning the next piece belong to the next task.
-    if (!move(game, 0, 1)) break;
+  for (let step = 0; step < steps && !game.gameOver; step++) {
+    if (!move(game, 0, 1)) lockPiece(game);
   }
 }
