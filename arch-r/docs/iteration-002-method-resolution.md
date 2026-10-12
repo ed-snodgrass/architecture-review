@@ -157,3 +157,58 @@ Verification: `python3 -m unittest discover -s tests -v` passed all 116 tests.
 Test files (including pre-existing working-tree changes) and the plan were
 left unchanged. No Java source was compiled or executed. The task remains
 unchecked as requested; this run only adds this verification record.
+
+## Generic initializer commas: current task verification
+
+The first unfinished subtask is preventing generic initializer commas from
+ending local declarator scanning early. Its implementation is already present
+in `archr/indexing.py`: `_local_declarations` skips balanced type-shaped
+constructor and explicit generic-method argument lists using
+`_initializer_type_arguments_end`, while ordinary comparisons do not introduce
+generic nesting. Each later local still begins shadowing at its own declarator;
+earlier initializer field calls and explicit `this` calls remain supported.
+No additional production change is necessary.
+
+The supplied regressions cover nested and successive generic constructors,
+explicit generic methods and constructor type arguments, calls before and
+within later initializers, block restoration, loop condition/update shadowing,
+unbraced loop bodies, and comparison expressions. The new multiple-initializer
+and loop fixtures use local types exposing the invoked methods, but their
+cross-package implementations are not legal Java: `client()` at
+`tests/test_resolution.py:57` declares package-private `remote.Client`, while
+both `shop.GenericClient` fixtures (validator locations 1038 and 1074)
+implement it from another package. The earlier claim that fixture validity was
+resolved was incorrect. Tests need revision: make the fixture interface public
+or place the implementing classes in its package. This finding is recorded as
+an unchecked subtask of the generic-initializer task in the plan. Test edits
+are prohibited in this run, so the finding remains blocked; no production
+workaround is appropriate.
+
+Verification: `python3 -m unittest discover -s tests -v` passed all 118 tests.
+Test files, including their pre-existing working-tree changes, and the plan
+were left unchanged. No Java source was compiled or executed. The subtask
+remains unchecked as requested; this run only records verification of the
+existing implementation. The suite was rerun after reviewing the validator
+finding: all 118 tests still pass, but these source-only tests do not establish
+Java accessibility validity. Production code and test files were left
+unchanged; only this verification record and the plan finding were updated.
+
+## Generic initializer commas: supplied fixture revision verified
+
+Re-read the seed and plan and checked the first unfinished generic-initializer
+subtask. The existing `_initializer_type_arguments_end` implementation in
+`archr/indexing.py` already preserves later declarators across generic
+initializer commas; no additional production change is necessary.
+
+The current supplied `client()` fixture in `tests/test_resolution.py` declares
+`public interface Client`. This resolves the recorded cross-package
+accessibility defect for both `shop.GenericClient` implementations. The prior
+blocked finding above describes an earlier fixture, not the current suite.
+No test revision is needed for this task with the supplied tests.
+
+Verification: `python3 -m unittest discover -s tests -q` passed all 118 tests,
+including generic initializer, nested type argument, explicit generic method,
+comparison, and block/loop shadowing regressions. No production code, tests,
+or plan checkboxes were changed in this run; no Java source was compiled or
+executed. The task remains unfinished as requested.
+

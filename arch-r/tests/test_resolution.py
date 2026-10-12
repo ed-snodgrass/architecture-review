@@ -56,7 +56,7 @@ class MethodResolutionTests(unittest.TestCase):
 
     def client(self, methods='void lookup(String id);'):
         return self.put('src/main/java/remote/Client.java',
-                        'package remote;\ninterface Client {\n    ' + methods + '\n}\n')
+                        'package remote;\npublic interface Client {\n    ' + methods + '\n}\n')
 
     def test_constructor_injected_field_forms_retain_call_and_declaration_evidence(self):
         client_path = self.client()
@@ -1028,6 +1028,72 @@ class Caller {{
                            ('this.client', 11), ('client', 13)],
                     [('client', 9), ('client', 10)],
                     syntax=[('Factory', 7)] if initializer.startswith('Factory.') else ())
+
+    def test_multiple_generic_initializers_preserve_local_shadowing_and_nested_field_calls(self):
+        self.client('Client copy(String a, String b); void lookup(String id);')
+        # GenericClient can implement Client; constructor bodies are irrelevant
+        # to field-receiver resolution in Caller. These are legal declarators
+        # of a single type, not Object locals on which lookup would be invalid.
+        self.put('src/main/java/shop/GenericClient.java', '''package shop;
+class GenericClient<A, B> implements remote.Client {
+    GenericClient(remote.Client value) {}
+    public remote.Client copy(String a, String b) { return this; }
+    public void lookup(String id) {}
+}
+''')
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        {
+            remote.Client first = new GenericClient<String, java.util.List<Integer>>(
+                    client.copy("before", "declaration")),
+                second = new GenericClient<java.util.Map<String, Integer>, Long>(first),
+                client = this.client.copy("field", "initializer"),
+                last = new GenericClient<String, Integer>(
+                    client.copy("local", "initializer"));
+            client.lookup("local");
+            this.client.lookup("field");
+        }
+        client.lookup("after");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('client', 7), ('this.client', 9),
+                   ('this.client', 13), ('client', 15)],
+            [('client', 11), ('client', 12)])
+
+    def test_generic_initializer_loop_shadowing_covers_condition_update_and_unbraced_body(self):
+        self.client('Client copy(String a, String b); void lookup(String id);')
+        initializers = (
+            'new GenericClient<String, Integer>()',
+            'new GenericClient<java.util.Map<String, Integer>, java.util.List<Long>>()',
+        )
+        self.put('src/main/java/shop/GenericClient.java', '''package shop;
+class GenericClient<A, B> implements remote.Client {
+    public remote.Client copy(String a, String b) { return this; }
+    public void lookup(String id) {}
+}
+''')
+        for initializer in initializers:
+            with self.subTest(initializer=initializer):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run() {{
+        for (remote.Client first = {initializer},
+                client = this.client.copy("field", "initializer");
+                client.copy("local", "condition") != null;
+                client = client.copy("local", "update"))
+            client.lookup("local body");
+        client.lookup("restored field");
+    }}
+}}
+''')
+                self.assert_receiver_partition(
+                    path, [('this.client', 6), ('client', 10)],
+                    [('client', 7), ('client', 8), ('client', 9)])
 
     def test_generic_initializer_in_loop_restores_field_after_body(self):
         self.client()
