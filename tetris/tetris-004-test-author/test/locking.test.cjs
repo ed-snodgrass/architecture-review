@@ -78,6 +78,41 @@ test('a blocked gravity step locks exactly four cells and consumes the next piec
   assertLegalSpawn(api, game, 'I');
 });
 
+test('the column-zero marker blocks the left path but leaves the corrected right path clear', async () => {
+  const api = await loadGame();
+  const game = api.createGame({ pieceSequence: ['O', 'T', 'I'], fallIntervalMs: 1000 });
+  atFloor(api, game);
+  game.board[10][0] = 'existing';
+  api.tick(game, 1000);
+  assertLegalSpawn(api, game, 'T');
+
+  const left = structuredClone(game);
+  for (let n = 0; n < 4; n++) api.move(left, -1, 0);
+  assert.ok(api.getActiveCells(left).some(cell => cell.x === 0), 'left path crosses the marker column');
+  while (api.move(left, 0, 1)) {}
+  const stopped = api.getActiveCells(left);
+  assert.equal(Math.max(...stopped.map(cell => cell.y)), 10,
+    'the T stops at the marker rather than reaching the floor');
+  assert.ok(stopped.some(cell => cell.x === 0 && cell.y === 9),
+    'a piece cell rests directly above the marker');
+  assert.equal(occupied(left.board), 5, 'movement alone does not lock');
+  api.tick(left, 1000);
+  assert.equal(left.board[10][0], 'existing', 'locking must not overwrite the obstruction');
+  assert.equal(occupied(left.board), 9);
+  for (const { x, y } of stopped) assert.notEqual(left.board[y][x], null);
+
+  const right = structuredClone(game);
+  for (let n = 0; n < 4; n++) api.move(right, 1, 0);
+  atFloor(api, right);
+  const landed = api.getActiveCells(right);
+  assert.ok(landed.every(cell => cell.x > 0), 'corrected fixture avoids the marker column');
+  api.tick(right, 1000);
+  assert.equal(right.board[10][0], 'existing');
+  assert.equal(occupied(right.board), 9);
+  for (const { x, y } of landed) assert.notEqual(right.board[y][x], null);
+  assertLegalSpawn(api, right, 'I');
+});
+
 test('gravity locks against a stack, not just against the floor', async () => {
   const api = await loadGame();
   const game = api.createGame({ pieceSequence: ['O', 'T'], fallIntervalMs: 1000 });
