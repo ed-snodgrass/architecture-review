@@ -599,6 +599,84 @@ class Caller {{
                            ('this.client', 11), ('client', 13)],
                     [('client', 9), ('client', 10)])
 
+    def test_annotated_local_is_shadowing_in_its_own_initializer(self):
+        # A local's scope starts at its declarator, not after its initializer.
+        # Even an invalid/uninitialized Java read must not become field evidence:
+        # this source-only analysis does not compile or repair the input.
+        self.client('Client copy(String a, String b); void lookup(String id);')
+        for prefix in ('@Deprecated ', '@Deprecated final ',
+                       '@flags.Mark(value = "a,b") final '):
+            with self.subTest(prefix=prefix):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run() {{
+        client.lookup("before");
+        {{
+            {prefix}remote.Client client = client.copy("self", "initializer");
+            client.lookup("local");
+            this.client.lookup("field");
+        }}
+        client.lookup("after");
+    }}
+}}
+''')
+                self.assert_receiver_partition(
+                    path, [('client', 5), ('this.client', 9), ('client', 11)],
+                    [('client', 7), ('client', 8)])
+
+    def test_uninitialized_comma_declarator_still_shadows_field(self):
+        self.client()
+        for prefix in ('', 'final ', '@Deprecated final ',
+                       '@flags.Mark(tags = {"a", "b"}) final '):
+            with self.subTest(prefix=prefix):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run() {{
+        client.lookup("before");
+        {{
+            {prefix}remote.Client first = null, second, client;
+            client = this.client;
+            client.lookup("local");
+            this.client.lookup("field");
+        }}
+        client.lookup("after");
+    }}
+}}
+''')
+                self.assert_receiver_partition(
+                    path, [('client', 5), ('this.client', 10), ('client', 12)],
+                    [('client', 9)])
+
+    def test_annotated_array_comma_declarators_keep_initializer_order(self):
+        self.client('Client clone();')
+        for declaration in (
+                '@Deprecated final remote.Client[] first = client.clone(),',
+                '@Deprecated final remote.Client first[] = client.clone(),',
+                '@flags.Mark(tags = {"a", "b"}) final remote.Client '
+                'first @flags.Dimension [] = client.clone(),'):
+            with self.subTest(declaration=declaration):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run() {{
+        {{
+            {declaration}
+                client @flags.Dimension [] = this.client.clone(),
+                last[] = client.clone();
+            client.clone();
+            this.client.clone();
+        }}
+        client.clone();
+    }}
+}}
+''')
+                self.assert_receiver_partition(
+                    path, [('client', 6), ('this.client', 7),
+                           ('this.client', 10), ('client', 12)],
+                    [('client', 8), ('client', 9)])
+
     def test_loop_local_lifetime_ends_after_the_whole_body(self):
         self.client()
         headers = (

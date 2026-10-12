@@ -79,3 +79,22 @@ revision is identified for this task in the current supplied suite.
 
 No test files or plan checkboxes were changed in this run. Interface
 implementation selection, traversal, and report integration remain later tasks.
+
+## Annotated and comma-separated local declarations: current verification
+
+The first unchecked subtask is the validator finding about annotated locals and
+subsequent comma-separated declarators. Its implementation is already present
+in `archr/indexing.py`: `_local_declarations` skips declaration annotations and
+`final`, records each declarator at its own name token, and `_invocations`
+activates shadowing at that token. Earlier initializers retain field calls;
+self-initializers and later calls use the unsupported local receiver. Explicit
+`this.client` remains a field receiver.
+
+Verified the unchanged supplied tests for annotated locals, self-initializers,
+comma-separated initialized and uninitialized locals, annotated array
+declarators, and restoration after block exit. All 45 method-resolution tests
+pass (`python3 -m unittest tests.test_resolution -v`), and all 109 suite tests
+pass (`python3 -m unittest discover -s tests`). No additional production changes
+or test revisions are needed for this subtask. The existing test-file working
+tree modification was preserved; no tests or plan checkboxes were edited in
+this run. The subtask remains unchecked as requested.
