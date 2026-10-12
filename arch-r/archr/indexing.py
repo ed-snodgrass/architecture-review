@@ -8,7 +8,8 @@ The lexer and source boundary are shared with Feign discovery.
 from dataclasses import dataclass
 import re
 
-from .discovery import Token, _annotation, _balanced_end, read_java_sources, tokenize
+from .discovery import (Token, _annotation, _balanced_end, extract_clients,
+                        read_java_sources, tokenize)
 from .module import Module
 
 
@@ -49,6 +50,10 @@ class JavaType:
     line: int
     fields: tuple[Field, ...]
     methods: tuple[Method, ...]
+    implements: tuple[str, ...] = ()
+    abstract: bool = False
+    generic: bool = False
+    feign: bool = False
 
 
 @dataclass(frozen=True)
@@ -515,6 +520,8 @@ def _extract(source: str, path: str) -> list[JavaType]:
     package = ''
     imports = {}
     types = []
+    feign_names = {client.interface_name for client in extract_clients(source, path)}
+    modifiers = set()
     i = 0
     while i < len(tokens):
         text = tokens[i].text
@@ -540,10 +547,28 @@ def _extract(source: str, path: str) -> list[JavaType]:
                 continue
             fields, methods = _members(tokens, opening, end, path, package, imports)
             name = tokens[i + 1].text
+            header = tokens[i + 2:opening]
+            implements = []
+            for position, token in enumerate(header):
+                if token.text == 'implements':
+                    for group in _groups(header[position + 1:]):
+                        # Parameterized implements declarations are not supported.
+                        if all(_IDENTIFIER.fullmatch(t.text) or t.text == '.' for t in group):
+                            implements.append(_resolve(''.join(t.text for t in group),
+                                                       package, imports))
+                    break
             types.append(JavaType(package + '.' + name if package else name,
-                                  text, path, tokens[i].line, fields, methods))
+                                  text, path, tokens[i].line, fields, methods,
+                                  tuple(implements), 'abstract' in modifiers,
+                                  bool(header and header[0].text == '<'),
+                                  text == 'interface' and name in feign_names))
+            modifiers.clear()
             i = end + 1
         else:
+            if text in _MODIFIERS:
+                modifiers.add(text)
+            else:
+                modifiers.clear()
             i += 1
     return types
 
