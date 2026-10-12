@@ -354,8 +354,8 @@ def extract_operations(source, source_path, tokens, opening, closing) -> tuple[O
     return tuple(operations)
 
 
-def discover_clients(module: Module) -> list[FeignClient]:
-    """Read Java sources in stable relative-path order; never follow symlinks."""
+def read_java_sources(module: Module) -> list[tuple[str, str]]:
+    """Read (module-relative path, source) pairs; never follow symlinks."""
     files: list[Path] = []
     def walk_error(error):
         raise AnalysisError(f"Cannot scan Java sources: {error}") from error
@@ -366,12 +366,18 @@ def discover_clients(module: Module) -> list[FeignClient]:
             directories[:] = sorted(d for d in directories if not (directory / d).is_symlink())
             files.extend(directory / name for name in names
                          if name.endswith(".java") and not (directory / name).is_symlink())
-        clients = []
+        sources = []
         for path in sorted(files, key=lambda p: p.relative_to(module.path).as_posix()):
             if not path.stat().st_mode & 0o444:
                 raise AnalysisError(f"Java source is not readable: {path}")
             source = path.read_text(encoding="utf-8")
-            clients.extend(extract_clients(source, path.relative_to(module.path).as_posix()))
-        return clients
+            sources.append((path.relative_to(module.path).as_posix(), source))
+        return sources
     except (OSError, UnicodeError) as exc:
         raise AnalysisError(f"Cannot read Java sources: {exc}") from exc
+
+
+def discover_clients(module: Module) -> list[FeignClient]:
+    """Discover clients using the shared read-only Java source boundary."""
+    return [client for path, source in read_java_sources(module)
+            for client in extract_clients(source, path)]
