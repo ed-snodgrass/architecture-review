@@ -136,3 +136,23 @@ class literals in `if` and `synchronized` headers preserve block invocations,
 exclude local-class method bodies, and retain subsequent calls with exact
 citations. Test files (including pre-existing working-tree additions) and the
 plan were left unchanged; the task remains unchecked.
+
+## Current anonymous-class ownership task verification
+
+The first unfinished subtask in the current plan is the anonymous-class
+ownership finding at `archr/indexing.py:96-127`. The existing implementation
+already records each anonymous constructor body's balanced range, scans its
+constructor arguments, and skips the body when reached. This excludes both
+methods and initializers from enclosing-method invocation ownership while
+retaining nested constructor-argument calls and calls after the body. No
+additional production correction is needed for this subtask.
+
+Verification: `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -v`
+passes all 64 supplied tests. Anonymous-body coverage includes nested bodies,
+qualified and generic constructor forms, constructor arguments, multiple
+anonymous objects inside invocation arguments, outer argument counts,
+trailing calls, and exact source citations. The supplied working tree already
+contains two additional anonymous-class regression tests; they were left
+unchanged. Only this verification record was edited in this run. Test files
+and the plan remain unchanged, and the subtask is not marked done. Later
+pending tasks were not taken on.

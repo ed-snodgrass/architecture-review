@@ -314,6 +314,68 @@ class Anonymous {
                           ('client', 'nestedArgument', 0, relative, 5),
                           ('this.client', 'after', 0, relative, 17)])
 
+    def test_anonymous_constructor_forms_keep_only_enclosing_method_calls(self):
+        relative = 'src/main/java/shop/AnonymousForms.java'
+        for constructor in ('Worker', 'workers.Worker', 'workers.Worker<String>',
+                            'workers.Worker<>'):
+            with self.subTest(constructor=constructor):
+                self.put(relative, f'''package shop;
+class AnonymousForms {{
+    remote.Client client;
+    void run() {{
+        if (true) {{
+            Object worker = new {constructor}(this.client.prepare("a,b", 2)) {{
+                {{ client.initializerOnly(); }}
+                public void work() {{ this.client.bodyOnly(); }}
+            }};
+            client.insideAfter();
+        }}
+        this.client.afterBlock();
+    }}
+    void later() {{ client.later(); }}
+}}
+''')
+                owner = self.types()['shop.AnonymousForms']
+                self.assertEqual([(m.name, m.parameter_count, m.line)
+                                  for m in owner.methods],
+                                 [('run', 0, 4), ('later', 0, 14)])
+                self.assertEqual([(c.receiver, c.method_name, c.argument_count,
+                                   c.source_path, c.line)
+                                  for c in owner.methods[0].invocations],
+                                 [('this.client', 'prepare', 2, relative, 6),
+                                  ('client', 'insideAfter', 0, relative, 10),
+                                  ('this.client', 'afterBlock', 0, relative, 12)])
+                self.assertEqual([(c.receiver, c.method_name, c.argument_count,
+                                   c.source_path, c.line)
+                                  for c in owner.methods[1].invocations],
+                                 [('client', 'later', 0, relative, 14)])
+
+    def test_anonymous_call_arguments_preserve_outer_call_arity_and_following_arguments(self):
+        relative = 'src/main/java/shop/AnonymousArguments.java'
+        self.put(relative, '''package shop;
+class AnonymousArguments {
+    remote.Client client;
+    void run() {
+        client.submit(new Worker(client.prepare()) {
+            { client.initializerOnly(); }
+            public void work() { client.bodyOnly(1, 2); }
+        }, this.client.next(), new Worker(client.second()) {
+            public void work() { client.secondBody(); }
+        });
+        this.client.after();
+    }
+}
+''')
+        owner = self.types()['shop.AnonymousArguments']
+        method = next(m for m in owner.methods if m.name == 'run')
+        self.assertEqual([(c.receiver, c.method_name, c.argument_count,
+                           c.source_path, c.line) for c in method.invocations],
+                         [('client', 'submit', 3, relative, 5),
+                          ('client', 'prepare', 0, relative, 5),
+                          ('this.client', 'next', 0, relative, 8),
+                          ('client', 'second', 0, relative, 8),
+                          ('this.client', 'after', 0, relative, 11)])
+
     def test_anonymous_field_initializers_preserve_fields_and_member_ownership(self):
         relative = 'src/main/java/shop/Holder.java'
         self.put(relative, '''package shop;
