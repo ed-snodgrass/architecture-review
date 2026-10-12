@@ -199,6 +199,61 @@ class Literals {
                           ('this.client', 'after', 1, relative, 10),
                           ('client', 'last', 0, relative, 11)])
 
+    def test_class_literal_forms_preserve_subsequent_supported_calls(self):
+        relative = 'src/main/java/shop/LiteralForms.java'
+        # A literal before a block must not cause that block to be skipped as
+        # though it were a local class body. Calls after it retain exact lines.
+        for literal in ('Client.class', 'remote.Client.class', 'int.class',
+                        'remote.Client[].class', 'int[][].class'):
+            with self.subTest(literal=literal):
+                self.put(relative, f'''package shop;
+import remote.Client;
+class LiteralForms {{
+    Client client;
+    void run() {{
+        Class<?> type = {literal};
+        if (type != null) {{
+            client.inside();
+        }}
+        this.client.after();
+    }}
+    void later() {{ client.later(); }}
+}}
+''')
+                owner = self.types()['shop.LiteralForms']
+                self.assertEqual([(m.name, m.parameter_count, m.line)
+                                  for m in owner.methods],
+                                 [('run', 0, 5), ('later', 0, 12)])
+                self.assertEqual([(c.receiver, c.method_name, c.argument_count,
+                                   c.source_path, c.line)
+                                  for c in owner.methods[0].invocations],
+                                 [('client', 'inside', 0, relative, 8),
+                                  ('this.client', 'after', 0, relative, 10)])
+                self.assertEqual([(c.receiver, c.method_name, c.line)
+                                  for c in owner.methods[1].invocations],
+                                 [('client', 'later', 12)])
+
+    def test_class_literals_in_arguments_do_not_hide_nested_or_following_calls(self):
+        relative = 'src/main/java/shop/LiteralArguments.java'
+        self.put(relative, '''package shop;
+class LiteralArguments {
+    remote.Client client;
+    void run() {
+        this.client.inspect(remote.Client.class, client.prepare());
+        client.inspect(int[].class, remote.Client.class);
+        client.finish();
+    }
+}
+''')
+        owner = self.types()['shop.LiteralArguments']
+        method = next(m for m in owner.methods if m.name == 'run')
+        self.assertEqual([(c.receiver, c.method_name, c.argument_count, c.source_path, c.line)
+                          for c in method.invocations],
+                         [('this.client', 'inspect', 2, relative, 5),
+                          ('client', 'prepare', 0, relative, 5),
+                          ('client', 'inspect', 2, relative, 6),
+                          ('client', 'finish', 0, relative, 7)])
+
     def test_anonymous_bodies_are_not_owned_but_constructor_arguments_and_trailing_calls_are(self):
         relative = 'src/main/java/shop/Anonymous.java'
         self.put(relative, '''package shop;

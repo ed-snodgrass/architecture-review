@@ -92,3 +92,32 @@ tests), including the class-literal and nested anonymous-body validator cases. A
 initializer ownership, multiple typed fields, following annotated methods,
 exact invocation lines, and deterministic repeated extraction. It creates no
 test files and executes no Java code. The source-indexing task remains unmarked.
+
+## First pending subtask: class literals
+
+The first unchecked task in the current plan is the class-literal validator
+finding. The supplied implementation already addresses it: `_invocations`
+only skips a local type declaration when its keyword does not follow a dot
+and is followed by an identifier. Consequently, qualified, primitive and
+array class literals remain expressions and do not hide later invocations;
+actual local type bodies remain excluded from enclosing-method ownership.
+No additional production change is necessary for this subtask.
+
+Fresh verification with
+`PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -v` passes all 61
+tests, including literal forms before blocks, literals inside arguments,
+nested and subsequent calls, and exact source citations. This task's supplied
+working tree adds two regression tests in `tests/test_indexing.py`:
+`test_class_literal_forms_preserve_subsequent_supported_calls` and
+`test_class_literals_in_arguments_do_not_hide_nested_or_following_calls`.
+These additions cover qualified, primitive and array literals, calls within
+subsequent blocks, nested argument calls, and exact source lines. The earlier
+claim that no test files changed omitted this added coverage.
+
+In this follow-up run, the supplied test additions were left unchanged and
+no test files were edited. The implementation already satisfies the first
+pending class-literal subtask; no production correction was needed. The full
+61-test suite passed again. The documentation finding is recorded as an
+unchecked subtask under the class-literal subtask in
+`factory/runs/arch-r-002/plan.md`. No task or subtask was marked done, and later
+pending tasks were not taken on.
