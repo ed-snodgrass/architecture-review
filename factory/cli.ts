@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 type Edge = { from: string; to: string; label?: string };
@@ -81,6 +81,26 @@ function parseResult(output: string): Outcome | undefined {
 function fields(name: string): string[] {
   return [...new Set(edges.filter(e => e.from === name && e.label).map(e => e.label!.replace(/^not /, '')))];
 }
+function testFiles(): string[] {
+  const files: string[] = [];
+  function visit(directory: string): void {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === '.git' || entry.name === '.assembly-lines') continue;
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (/(^|[\\/])(test|tests)[\\/]|\.(test|spec)\./i.test(path)) files.push(path);
+    }
+  }
+  visit(target!);
+  return files;
+}
+function testSnapshot(): Map<string, string> {
+  return new Map(testFiles().map(file => [file, readFileSync(file, 'utf8')]));
+}
+function testsChanged(before: Map<string, string>): boolean {
+  const after = testSnapshot();
+  return before.size !== after.size || [...before].some(([file, contents]) => after.get(file) !== contents);
+}
 function route(name: string, result: Outcome): string {
   const outgoing = edges.filter(e => e.from === name);
   const direct = outgoing.find(e => !e.label);
@@ -104,10 +124,14 @@ function prompt(name: string): string {
   if (name === 'planner') return completingTask
     ? `Read the plan at ${JSON.stringify(plan)}.\nThe current task's validated work has been committed.\nMark the current task done, and mark only that task. Inspect the updated plan. Set "complete" to false when any task remains unfinished, and true only when every task is finished.\n${answer}`
     : `Read the seed at ${JSON.stringify(seed)}.\nIf no plan exists at ${JSON.stringify(plan)}, write one there.\nInspect the plan after any write. Set "complete" to false whenever the plan has any unfinished task, and true only when every task is finished. Do not perform a task.\n${answer}`;
-  if (name === 'doer') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done.${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
+  if (name === 'doer') {
+    const tests = testFiles();
+    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done. Do not modify test files.${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
+  }
+  if (name === 'test_author') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nCreate objective tests for the first unfinished task when tests are applicable. If no tests are applicable, say so in your result. Do not implement the task.\n${answer}`;
   if (name === 'validator') {
     const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
-    return `Review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
+    return `Run the current task's tests first. Confirm they pass, then review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
   }
   return answer;
 }
@@ -130,7 +154,9 @@ let machine = edges.find(e => e.from === 'start')?.to ?? fail('The assembly line
 let catalyst = 'Seed';
 while (machine !== 'finish') {
   if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
+  const testsBefore = machine === 'doer' ? testSnapshot() : undefined;
   const outcome = execute(machine, catalyst);
+  if (machine === 'doer' && testsChanged(testsBefore!)) fail('The doer changed tests');
   const next = route(machine, outcome);
   if (machine === 'validator') findings = outcome.findings;
   if ((machine === 'doer' || machine === 'validator') && next === 'planner') {

@@ -140,6 +140,17 @@ Given('the target has the machines planner, doer and validator', function () {
   }
 });
 
+Given('the target has the machines planner, test_author, doer and validator', function () {
+  for (const machine of ['planner', 'test_author', 'doer', 'validator']) {
+    const directory = join(this.target, '.assembly-lines', '.machines', machine);
+    mkdirSync(directory, { recursive: true });
+    const configuration = machine === 'validator'
+      ? { lens: 'single responsibility' }
+      : {};
+    writeFileSync(join(directory, 'machine.json'), JSON.stringify(configuration));
+  }
+});
+
 const carefulLine = `digraph assembly_line {
   start -> planner
   planner -> doer [label="not complete"]
@@ -155,7 +166,29 @@ Given("the target has an assembly line {string} on which the doer's work is vali
   writeFileSync(join(directory, name + '.dot'), carefulLine);
 });
 
+Given('the target has an assembly line {string} with a test author before the doer', function (name: string) {
+  const directory = join(this.target, '.assembly-lines');
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, name + '.dot'), `digraph assembly_line {
+  start -> planner
+  planner -> test_author [label="not complete"]
+  planner -> finish [label="complete"]
+  test_author -> doer
+  doer -> validator
+  validator -> planner [label="satisfied"]
+  validator -> doer [label="not satisfied"]
+}\n`);
+});
+
 Given('a run named {string}, on the {string} line, with that seed and target', function (run: string, line: string) {
+  this.runs ??= {};
+  this.runs[run] = { target: this.target, seed: this.seed, line };
+  this.runName = run;
+  this.plan = join(this.workspace, 'runs', run, 'plan.md');
+  this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
+});
+
+Given('a run named {string} on the {string} line, with that seed and target', function (run: string, line: string) {
   this.runs ??= {};
   this.runs[run] = { target: this.target, seed: this.seed, line };
   this.runName = run;
@@ -485,6 +518,80 @@ console.log(JSON.stringify({ complete: !text.includes('- [ ]') }));
   };
 });
 
+Given('the planner plans the task alpha', function () {
+  const agentBin = join(this.workspace, 'agents');
+  mkdirSync(agentBin, { recursive: true });
+  const planner = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+const plan = process.env.FACTORY_TEST_PLAN;
+fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-planner\n');
+fs.mkdirSync(path.dirname(plan), { recursive: true });
+if (!fs.existsSync(plan)) fs.writeFileSync(plan, '- [ ] alpha\n');
+let text = fs.readFileSync(plan, 'utf8');
+if (process.argv.slice(2).join('\n').includes('Mark the current task done')) {
+  text = text.replace('- [ ] alpha', '- [x] alpha');
+  fs.writeFileSync(plan, text);
+}
+console.log(JSON.stringify({ complete: !text.includes('- [ ]') }));
+`;
+  const testAuthor = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.appendFileSync(path.join(workspace, 'agent-calls'), 'test_author\n');
+if (process.env.FACTORY_TEST_NO_TESTS !== '1') {
+  fs.writeFileSync('alpha.test.js', 'module.exports = true;\n');
+}
+console.log(JSON.stringify({ applicable: process.env.FACTORY_TEST_NO_TESTS !== '1' }));
+`;
+  const doer = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
+fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
+if (process.env.FACTORY_TEST_DOER_CHANGES_TEST === '1') fs.writeFileSync('alpha.test.js', 'module.exports = false;\n');
+fs.writeFileSync('alpha.txt', 'alpha\n');
+console.log(JSON.stringify({ task: 'alpha' }));
+`;
+  const validator = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-validator\n');
+fs.writeFileSync(path.join(workspace, 'validator-args'), JSON.stringify(process.argv.slice(2)));
+console.log(JSON.stringify({ satisfied: true, findings: [] }));
+`;
+  for (const [name, script] of [
+    ['fake-planner', planner],
+    ['fake-test-author', testAuthor],
+    ['fake-doer', doer],
+    ['fake-validator', validator],
+  ] as const) writeFileSync(join(agentBin, name), script, { mode: 0o755 });
+  this.harness = join(agentBin, 'fake-planner');
+  this.testAuthorHarness = join(agentBin, 'fake-test-author');
+  this.doerHarness = join(agentBin, 'fake-doer');
+  this.validatorHarness = join(agentBin, 'fake-validator');
+  this.env = {
+    ...(this.env ?? process.env),
+    FACTORY_TEST_WORKSPACE: this.workspace,
+  };
+});
+
+Given('the test author says no tests are applicable', function () {
+  this.env.FACTORY_TEST_NO_TESTS = '1';
+});
+
+Given('the test author has written the task\'s tests', function () {
+  this.env.FACTORY_TEST_NO_TESTS = undefined;
+});
+
+Given('the doer changes a test while implementing the task', function () {
+  this.env.FACTORY_TEST_DOER_CHANGES_TEST = '1';
+});
+
 Given('the doer does the next task in the plan', function () {
   this.doerHarness = join(this.workspace, 'agents', 'fake-doer');
 
@@ -693,6 +800,10 @@ function runFactory(this: IWorld, run = this.runName, onlyName = false, target =
     args.push('--doer-harness', this.doerHarness);
   }
 
+  if (this.testAuthorHarness !== undefined) {
+    args.push('--test_author-harness', this.testAuthorHarness);
+  }
+
   if (this.validatorHarness !== undefined) {
     args.push('--validator-harness', this.validatorHarness);
   }
@@ -864,6 +975,51 @@ Then('the doer was pointed at the plan and at the seed', function () {
     prompt.includes(this.plan),
     'Expected the plan path',
   );
+});
+
+Then('the test author has been called before the doer', function () {
+  const calls = readFileSync(join(this.workspace, 'agent-calls'), 'utf8').trim().split('\n');
+  assert.ok(calls.indexOf('test_author') < calls.indexOf('fake-doer'));
+});
+
+Then("the doer was given the task's tests", function () {
+  const prompt = JSON.parse(readFileSync(join(this.workspace, 'doer-args'), 'utf8')).join('\n');
+  assert.match(prompt, /alpha\.test\.js/);
+});
+
+Then('the doer has been called', function () {
+  const calls = readFileSync(join(this.workspace, 'agent-calls'), 'utf8').trim().split('\n');
+  assert.ok(calls.includes('fake-doer'));
+});
+
+Then('the run continues without tests', function () {
+  assert.equal(existsSync(join(this.target, 'alpha.test.js')), false);
+});
+
+Then('the factory reports that the doer changed tests', function () {
+  assert.match(this.result.stdout + this.result.stderr, /doer changed tests/i);
+});
+
+Then("the doer's work has not been committed", function () {
+  const commits = execFileSync('git', ['log', '--format=%H', this.initialCommit + '..HEAD'], {
+    cwd: this.target,
+    encoding: 'utf8',
+  }).trim();
+  assert.equal(commits, '');
+});
+
+Then("the validator was told to run the task's tests first", function () {
+  assert.ok(
+    existsSync(join(this.workspace, 'validator-args')),
+    `${this.result.stdout}\n${this.result.stderr}`,
+  );
+  const prompt = JSON.parse(readFileSync(join(this.workspace, 'validator-args'), 'utf8')).join('\n');
+  assert.match(prompt, /Run the current task's tests first/);
+});
+
+Then('the validator was given the lens {string}', function (lens: string) {
+  const prompt = JSON.parse(readFileSync(join(this.workspace, 'validator-args'), 'utf8')).join('\n');
+  assert.match(prompt, new RegExp(`\\b${lens}\\b`));
 });
 
 Then('the planner was asked for a result with the field "complete"', function () {
