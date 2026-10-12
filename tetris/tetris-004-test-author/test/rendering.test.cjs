@@ -27,8 +27,10 @@ if (!vm.SourceTextModule) {
   // Small fixed-size terminal model: common cursor, erase, SGR and OSC commands.
   // Reject unsupported control sequences rather than silently miscounting rows.
   class Screen {
-    constructor() {
-      this.cells = Array.from({ length: 24 }, () => Array(80).fill(' '));
+    constructor(columns = 80, rows = 24) {
+      this.columns = columns;
+      this.rows = rows;
+      this.cells = Array.from({ length: rows }, () => Array(columns).fill(' '));
       this.x = this.y = this.maxRow = this.scrolls = 0;
       this.pending = '';
       this.saved = [0, 0];
@@ -55,7 +57,7 @@ if (!vm.SourceTextModule) {
             case 'd': this.y = n - 1; break;
             case 'J': {
               const mode = args[0];
-              for (let y = 0; y < 24; y++) for (let x = 0; x < 80; x++) {
+              for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.columns; x++) {
                 if (mode === 2 || mode === 3 ||
                     (mode === 0 && (y > this.y || (y === this.y && x >= this.x))) ||
                     (mode === 1 && (y < this.y || (y === this.y && x <= this.x)))) {
@@ -65,7 +67,7 @@ if (!vm.SourceTextModule) {
               break;
             }
             case 'K':
-              for (let x = 0; x < 80; x++) {
+              for (let x = 0; x < this.columns; x++) {
                 if (args[0] === 2 || (args[0] === 0 && x >= this.x) ||
                     (args[0] === 1 && x <= this.x)) this.cells[this.y][x] = ' ';
               }
@@ -91,10 +93,10 @@ if (!vm.SourceTextModule) {
         else if (char === '\x07') continue;
         else {
           assert.notEqual(char, '\x1b', 'unsupported escape sequence');
-          if (this.x >= 80) { this.x = 0; this.y++; }
+          if (this.x >= this.columns) { this.x = 0; this.y++; }
           this.maxRow = Math.max(this.maxRow, this.y + 1);
-          while (this.y >= 24) {
-            this.cells.shift(); this.cells.push(Array(80).fill(' '));
+          while (this.y >= this.rows) {
+            this.cells.shift(); this.cells.push(Array(this.columns).fill(' '));
             this.y--; this.scrolls++;
           }
           this.cells[this.y][this.x++] = char;
@@ -108,7 +110,7 @@ if (!vm.SourceTextModule) {
     const api = await import('../src/game.js');
     const game = api.createGame({ pieceSequence: ['O', 'T'] });
     configure(game, api);
-    const screen = new Screen();
+    const screen = new Screen(dimensions.columns, dimensions.rows);
     const input = new PassThrough();
     Object.assign(input, { isTTY: true, isRaw: false });
     input.setRawMode = value => { input.isRaw = value; return input; };
@@ -164,6 +166,12 @@ if (!vm.SourceTextModule) {
     return {
       game, screen, input, exits, timers,
       async resize(columns, rows) {
+        screen.cells = Array.from({ length: rows }, (_, y) =>
+          Array.from({ length: columns }, (_, x) => screen.cells[y]?.[x] ?? ' '));
+        screen.columns = columns;
+        screen.rows = rows;
+        screen.x = Math.min(screen.x, columns - 1);
+        screen.y = Math.min(screen.y, rows - 1);
         Object.assign(output, { columns, rows });
         output.emit('resize');
         await new Promise(resolve => setImmediate(resolve));
@@ -188,8 +196,8 @@ if (!vm.SourceTextModule) {
     assert.ok(screen.maxRow <= 24, `display writes to row ${screen.maxRow}, exceeding 24`);
     assert.equal(screen.scrolls, 0, 'redrawing must not scroll the board off screen');
   }
-  async function snapshot(configure) {
-    const session = await launch(configure);
+  async function snapshot(configure, dimensions) {
+    const session = await launch(configure, dimensions);
     try { await session.advance(); fits(session.screen); return session.screen.lines(); }
     finally { session.dispose(); }
   }
@@ -286,11 +294,15 @@ if (!vm.SourceTextModule) {
     });
   }
 
-  test('all 20 board rows are visible with side, top, and bottom borders within 24 rows', async () => {
-    const empty = await snapshot(blank);
+  // Count physical rows after autowrap at the reported boundary, not just
+  // newline-delimited rows in an 80-column terminal.
+  for (const columns of [40, 80]) {
+    const dimensions = { columns, rows: 24 };
+    test(`${columns} columns: all 20 board rows are visible with borders within 24 rows`, async () => {
+    const empty = await snapshot(blank, dimensions);
     const displayedRows = [];
     for (let y = 0; y < 20; y++) {
-      const marked = await snapshot(game => { blank(game); game.board[y][0] = 'O'; });
+      const marked = await snapshot(game => { blank(game); game.board[y][0] = 'O'; }, dimensions);
       const changed = marked.flatMap((line, index) => line !== empty[index] ? [index] : []);
       assert.equal(changed.length, 1, `board row ${y} must change one visible row`);
       const row = changed[0];
@@ -305,15 +317,15 @@ if (!vm.SourceTextModule) {
     assert.ok(empty.slice(displayedRows.at(-1) + 1).some(line => /[+\-_=─━└┘╚╝]/u.test(line)), 'bottom border is visible');
   });
 
-  test('the falling piece is displayed, not only settled cells', async () => {
-    const empty = await snapshot(blank);
-    const active = await snapshot();
+  test(`${columns} columns: the falling piece is displayed, not only settled cells`, async () => {
+    const empty = await snapshot(blank, dimensions);
+    const active = await snapshot(undefined, dimensions);
     const changes = active.filter((line, i) => line !== empty[i]);
     assert.equal(changes.length, 2, 'the initial O piece occupies two visible board rows');
   });
 
-  test('score and keyboard instructions are readable within the same 24-row frame', async () => {
-    const lines = await snapshot(game => { game.score = 123456; });
+  test(`${columns} columns: score and keyboard instructions are readable within the same 24-row frame`, async () => {
+    const lines = await snapshot(game => { game.score = 123456; }, dimensions);
     const text = lines.join('\n');
     assert.match(text, /score\s*[:=]?\s*123456/i);
     assert.match(text, /(?:arrow|←|→|↑|↓)/i, 'show the movement keys');
@@ -321,8 +333,8 @@ if (!vm.SourceTextModule) {
     assert.match(text, /(?:exit|quit)/i, 'show how to leave the game');
   });
 
-  test('gravity redraws in place rather than appending overflowing frames', async t => {
-    const session = await launch();
+  test(`${columns} columns: gravity redraws in place rather than appending overflowing frames`, async t => {
+    const session = await launch(undefined, dimensions);
     t.after(() => session.dispose());
     await session.advance();
     const initial = session.screen.lines();
@@ -330,14 +342,14 @@ if (!vm.SourceTextModule) {
     assert.notDeepEqual(session.screen.lines(), initial, 'falling must be visible');
   });
 
-  test('blocked spawning renders game over, board, final score and exit controls within 24 rows', async t => {
+  test(`${columns} columns: blocked spawning renders game over, board, final score and exit controls within 24 rows`, async t => {
     const session = await launch((game, api) => {
       while (api.move(game, 0, 1)) {}
       const probe = api.createGame({ pieceSequence: ['T'] });
       const blocker = api.getActiveCells(probe)[0];
       game.board[blocker.y][blocker.x] = 'T';
       game.score = 98765;
-    });
+    }, dimensions);
     t.after(() => session.dispose());
     await session.advance(1000);
     assert.equal(session.game.gameOver, true, 'fixture must reach actual game over');
@@ -351,4 +363,33 @@ if (!vm.SourceTextModule) {
     fits(session.screen);
     assert.deepEqual(session.screen.lines(), ended, 'game-over display remains stable');
   });
+  }
+
+  for (const columns of [1, 20, 39]) {
+    test(`${columns} columns: undersized warning stays within physical screen bounds`, async t => {
+      const session = await launch(undefined, { columns, rows: 24 });
+      t.after(() => session.dispose());
+      await session.advance(10000);
+      fits(session.screen);
+      assert.ok(session.screen.lines().some(line => line.trim()), 'show a bounded warning');
+      if (columns >= 20) {
+        assert.match(session.screen.lines().join('\n'), /resize|needs/i);
+      }
+    });
+  }
+
+  for (const gameOver of [false, true]) {
+    test(`40 columns: unusually long score does not wrap (${gameOver ? 'game over' : 'playing'})`, async t => {
+      const session = await launch(game => {
+        game.score = Number.MAX_VALUE;
+        game.gameOver = gameOver;
+      }, { columns: 40, rows: 24 });
+      t.after(() => session.dispose());
+      fits(session.screen);
+      const text = session.screen.lines().join('\n');
+      assert.match(text, /score/i);
+      assert.match(text, /exit|quit/i);
+      if (gameOver) assert.match(text, /game\s*over/i);
+    });
+  }
 }
