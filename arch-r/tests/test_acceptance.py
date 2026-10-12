@@ -67,6 +67,20 @@ public interface InventoryClient {
             self.assertIn(expected, report)
         self.assertNotIn("getItem", report.split("```mermaid")[1].split("```")[0])
 
+    def test_module_path_with_underscores_and_brackets_is_markdown_escaped(self):
+        # Exercise a known path spelling, independently of the host's TMPDIR.
+        original_module = self.module
+        self.module = original_module.with_name("orders_[module]")
+        original_module.rename(self.module)
+        report = self.successful_report()
+        path_line = next(line for line in report.splitlines()
+                         if line.startswith("**Module path:** "))
+        # Literal expectations avoid importing or calling the production escaper.
+        self.assertTrue(path_line.endswith("/modules/orders&#95;&#91;module&#93;"),
+                        path_line)
+        self.assertNotIn(str(self.module), path_line)
+        self.assertNotIn("orders_[module]", path_line)
+
     def test_placeholder_is_not_resolved_from_configuration(self):
         self.source("Pricing.java", '''@FeignClient(name = "pricing", url = "${pricing.url}")
 interface Pricing {}
