@@ -247,3 +247,26 @@ files, production code, or plan checkboxes were changed. The pre-existing
 untracked `tests/test_resource_scope.py` was preserved. No analyzed Java source
 was compiled, executed, or modified. This subtask remains unchecked as requested.
 
+## Explicit generic invocation evidence: current task verification
+
+The first unfinished subtask is retaining evidence for explicit generic
+invocations. The supplied implementation already records receiver, method,
+argument count, relative source path, line, and `explicit_type_arguments` in
+`archr/indexing.py`. `archr/resolution.py` reports these invocations as
+`unsupported-syntax`, without selecting a generic method endpoint. Nested
+ordinary field calls remain independently resolvable; same-class helpers are
+excluded. No additional production change is necessary.
+
+The supplied `tests/test_explicit_generic_invocations.py` covers multiline and
+nested type arguments, exact receiver/arity/citations, nested generic calls,
+independent ordinary field links, same-class helpers, and repeatable results.
+Existing resolution tests cover generic field-call diagnostics and now allow
+retained `Factory` evidence in the generic initializer assertion. The prior
+plan note about that assertion failing describes an older suite; no test
+revision is identified for this task in the current supplied suite.
+
+Verification: `python3 -m unittest discover -s tests -v` passed all 131 tests.
+No production code, test files, or plan checkboxes were changed. The pre-existing
+untracked `tests/test_explicit_generic_invocations.py` was preserved. No Java
+source was compiled or executed. The task remains unchecked as requested.
+
