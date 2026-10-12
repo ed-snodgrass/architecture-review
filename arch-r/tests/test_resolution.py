@@ -893,6 +893,56 @@ class Caller {
             path, [('this.client', 9), ('this.client', 12), ('client', 14)],
             [('client', 8), ('client', 11)])
 
+    def test_nested_catch_exit_restores_outer_catch_before_restoring_field(self):
+        self.client()
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        try {} catch (remote.Failure client) {
+            try {} catch (remote.OtherFailure inner) {
+                inner.lookup("inner parameter");
+                client.lookup("outer parameter inside inner catch");
+                this.client.lookup("explicit field");
+            } finally {
+                client.lookup("outer parameter in inner finally");
+            }
+            client.lookup("outer parameter after inner catch");
+            this.client.lookup("explicit field after inner catch");
+        } finally {
+            client.lookup("field in outer finally");
+        }
+        client.lookup("field after outer catch");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('this.client', 9), ('this.client', 14),
+                   ('client', 16), ('client', 18)],
+            [('inner', 7), ('client', 8), ('client', 11), ('client', 13)])
+
+    def test_catch_exit_preserves_same_named_method_parameter(self):
+        self.client()
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run(remote.Client client) {
+        try {} catch (remote.Failure failure) {
+            client.lookup("method parameter in catch");
+            this.client.lookup("explicit field in catch");
+        } finally {
+            client.lookup("method parameter in finally");
+            this.client.lookup("explicit field in finally");
+        }
+        client.lookup("method parameter after catch");
+        this.client.lookup("explicit field after catch");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('this.client', 7), ('this.client', 10), ('this.client', 13)],
+            [('client', 6), ('client', 9), ('client', 12)])
+
     def test_generic_initializer_commas_do_not_hide_later_local_declarators(self):
         self.client('Client copy(String a, String b); void lookup(String id);')
         initializers = (

@@ -98,3 +98,43 @@ pass (`python3 -m unittest discover -s tests`). No additional production changes
 or test revisions are needed for this subtask. The existing test-file working
 tree modification was preserved; no tests or plan checkboxes were edited in
 this run. The subtask remains unchecked as requested.
+
+## Catch-parameter lifetime: nested-catch validator follow-up
+
+The first unfinished subtask concerns catch-parameter scope restoration. The
+existing dedicated catch scope already ends at its body; no production change
+is needed. All 114 supplied tests pass (`python3 -m unittest discover -s tests
+-q`). Test files, including their pre-existing working-tree changes, were left
+unchanged. No task was marked done.
+
+Tests need revision: `tests/test_resolution.py:902-903` redeclares `client` in a
+nested catch while the outer catch parameter remains in scope, which Java
+forbids. Replace the inner name with a distinct name and assert that calls on
+the outer `client` remain unsupported inside and after the inner catch,
+including its finally block. Retain explicit `this.client` and field-restoration
+assertions after the outer catch. This finding is recorded as an unchecked
+subtask beneath the current catch-scope task in the plan.
+
+An in-memory indexing probe using distinct `client` and `inner` catch names
+passed: both parameter receivers remain unsupported, the outer name still
+shadows the field after the inner catch and in its finally block, explicit
+`this.client` remains supported, and unqualified field calls resume in the
+outer finally block and after the outer catch. No Java source was compiled or
+executed, and no implementation workaround was introduced for the faulty test.
+The durable fixture correction was blocked in that run by the instruction not
+to modify tests.
+
+## Catch-parameter lifetime: durable test correction
+
+Corrected `test_nested_catch_exit_restores_outer_catch_before_restoring_field`
+in `tests/test_resolution.py` to use distinct outer `client` and inner `inner`
+catch parameters. Exact receiver/line assertions now cover both parameters
+inside the inner catch, continued outer-parameter shadowing in the inner
+finally block and after the inner catch, explicit field access, and restoration
+of unqualified field access in the outer finally block and afterward.
+
+Verification: all 50 method-resolution tests and all 114 suite tests pass
+(`python3 -m unittest discover -s tests -p test_resolution.py -q` and
+`python3 -m unittest discover -s tests -q`). No production code or plan
+checkboxes were changed; the task remains unfinished. No Java fixture was
+compiled or executed.
