@@ -64,6 +64,34 @@ test('frame validation rejects overwide rows in later frames', () => {
     wideFrame + CURSOR_RESTORED, true), /80 columns/);
 });
 
+test('frame validation never hides an incomplete bounded frame among valid frames', () => {
+  const shortFrame = sampleFrame.split('\n').slice(0, 23).join('\n');
+  for (const malformed of ['', shortFrame, sampleFrame.slice(0, -1)]) {
+    assert.throws(() => parseFrames(FRAME_START + sampleFrame +
+      FRAME_START + malformed + FRAME_START + sampleFrame, true),
+    /exactly 24 rows|all controls/);
+    assert.throws(() => parseFrames(FRAME_START + sampleFrame +
+      FRAME_START + malformed + CURSOR_RESTORED, true),
+    /exactly 24 rows|all controls/);
+  }
+});
+
+test('streaming frames cannot defer an already observable row or column overflow', () => {
+  assert.throws(() => parseFrames(FRAME_START + sampleFrame + '\n'), /24 rows/);
+  assert.throws(() => parseFrames(FRAME_START + 'X'.repeat(81)), /80 columns/);
+  const exactWidth = sampleFrame.replace('row 10', 'X'.repeat(80));
+  assert.equal(parseFrames(FRAME_START + exactWidth + CURSOR_RESTORED, true).length, 1);
+});
+
+test('shutdown boundary excludes shell output but not an extra game row', () => {
+  const shellOutput = '\x1b[?1049l\r\n' + 'shell '.repeat(20) + '\r\n'.repeat(30);
+  const terminalFrame = sampleFrame.replace(/\n/g, '\r\n');
+  assert.equal(parseFrames(FRAME_START + terminalFrame +
+    CURSOR_RESTORED + shellOutput, true).length, 1);
+  assert.throws(() => parseFrames(FRAME_START + terminalFrame + '\r\n' +
+    CURSOR_RESTORED + shellOutput, true), /24 rows/);
+});
+
 // End-to-end acceptance: real npm entry point, terminal input, mechanics, and
 // rendering. Unlike the VM control tests, no game or timer is stubbed.
 test('npm start is playable in a 24-row terminal and restores it on quit', {
