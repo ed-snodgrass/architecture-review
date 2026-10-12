@@ -9,6 +9,7 @@ import tempfile
 from .discovery import discover_clients
 from .module import AnalysisError, load_module
 from .report import render_report
+from .traversal import DEFAULT_MAX_CALL_STEPS, trace_usage
 
 
 def write_report(filename: str, content: str) -> None:
@@ -38,7 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         module = load_module(args.spring_module_path)
         clients = discover_clients(module)
-        content = render_report(module, clients)
+        usage = trace_usage(module, max_depth=DEFAULT_MAX_CALL_STEPS)
+        content = render_report(module, clients, usage)
         write_report(module.report_filename, content)
     except AnalysisError as exc:
         print(f"arch-r: {exc}", file=sys.stderr)

@@ -32,6 +32,8 @@ class Method:
     source_path: str
     line: int
     invocations: tuple[Invocation, ...] = ()
+    # Declaration start may be an annotation; retain the method-name location too.
+    declaration_line: int | None = None
 
 
 @dataclass(frozen=True)
@@ -507,7 +509,8 @@ def _members(tokens, opening, closing, path, package, imports):
                                       _invocations(tokens[i + 1:body_end], path,
                                                    tuple(_parameter_name(group) for group in
                                                          _groups(declaration[paren + 1:end])))
-                                      if tokens[i].text == '{' else ()))
+                                      if tokens[i].text == '{' else (),
+                                      declaration[paren - 1].line))
         elif tokens[i].text == ';':
             fields.extend(_fields(declaration, path, package, imports))
         # Skip initializer/nested type bodies, not their contents as members.

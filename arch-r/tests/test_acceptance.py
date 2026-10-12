@@ -62,9 +62,11 @@ public interface InventoryClient {
             "src/main/java/InventoryClient.java:3", "src/main/java/InventoryClient.java:5",
             'System(module, "order-service"', 'Container(feign_1, "InventoryClient"',
             'System_Ext(external_1, "inventory"', escaped_module_path,
-            "did not inspect callers", "domain-facing port or adapter",
         ):
             self.assertIn(expected, report)
+        self.assertNotIn("did not inspect callers", report)
+        self.assertIn("### How the code uses this connection", report)
+        self.assertIn("### Evidence and uncertainty", report)
         self.assertNotIn("getItem", report.split("```mermaid")[1].split("```")[0])
 
     def test_module_path_with_underscores_and_brackets_is_markdown_escaped(self):
