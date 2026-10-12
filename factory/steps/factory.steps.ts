@@ -180,6 +180,13 @@ Given('the target has an assembly line {string} with a test author before the do
 }\n`);
 });
 
+Given('an assembly line where incorrect tests return to the test author', function () {
+  const file = join(this.target, '.assembly-lines', 'careful.dot');
+  const line = readFileSync(file, 'utf8')
+    .replace('validator -> planner [label="satisfied"]', 'validator -> test_author [label="tests incorrect"]\n  validator -> planner [label="satisfied"]');
+  writeFileSync(file, line);
+});
+
 Given('a run named {string}, on the {string} line, with that seed and target', function (run: string, line: string) {
   this.runs ??= {};
   this.runs[run] = { target: this.target, seed: this.seed, line };
@@ -541,8 +548,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'test_author\n');
+fs.appendFileSync(path.join(workspace, 'test-author-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 if (process.env.FACTORY_TEST_NO_TESTS !== '1') {
-  fs.writeFileSync('alpha.test.js', 'module.exports = true;\n');
+  fs.writeFileSync('alpha.test.js', process.argv.join(' ').includes('validator reported') ? 'module.exports = corrected;\n' : 'module.exports = true;\n');
 }
 console.log(JSON.stringify({ applicable: process.env.FACTORY_TEST_NO_TESTS !== '1' }));
 `;
@@ -562,7 +570,14 @@ const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-validator\n');
 fs.writeFileSync(path.join(workspace, 'validator-args'), JSON.stringify(process.argv.slice(2)));
-console.log(JSON.stringify({ satisfied: true, findings: [] }));
+  const calls = path.join(workspace, 'validator-calls');
+  fs.appendFileSync(calls, 'called\n');
+  const count = fs.readFileSync(calls, 'utf8').trim().split('\n').length;
+  if (process.env.FACTORY_TEST_TESTS_INCORRECT_FIRST === '1' && count === 1) {
+    console.log(JSON.stringify({ satisfied: false, 'tests incorrect': true, findings: ['The tests misread the task.'] }));
+  } else {
+    console.log(JSON.stringify({ satisfied: true, 'tests incorrect': false, findings: [] }));
+  }
 `;
   for (const [name, script] of [
     ['fake-planner', planner],
@@ -590,6 +605,10 @@ Given('the test author has written the task\'s tests', function () {
 
 Given('the doer changes a test while implementing the task', function () {
   this.env.FACTORY_TEST_DOER_CHANGES_TEST = '1';
+});
+
+Given('the validator says the tests are incorrect the first time', function () {
+  this.env.FACTORY_TEST_TESTS_INCORRECT_FIRST = '1';
 });
 
 Given('the doer does the next task in the plan', function () {
@@ -994,6 +1013,17 @@ Then('the doer has been called', function () {
 
 Then('the run continues without tests', function () {
   assert.equal(existsSync(join(this.target, 'alpha.test.js')), false);
+});
+
+Then("the test author has been called again with the validator's findings", function () {
+  const calls = readFileSync(join(this.workspace, 'agent-calls'), 'utf8').trim().split('\n');
+  assert.equal(calls.filter(call => call === 'test_author').length, 2);
+  const prompts = readFileSync(join(this.workspace, 'test-author-args-log'), 'utf8');
+  assert.match(prompts, /tests misread the task/i);
+});
+
+Then('the run finishes after the corrected tests pass', function () {
+  assert.equal(this.result.status, 0, this.result.stderr);
 });
 
 Then('the factory reports that the doer changed tests', function () {

@@ -45,3 +45,12 @@ Feature: Test author
       When the factory runs the "tetris" run
       Then the validator was told to run the task's tests first
       And the validator was given the lens "usability"
+
+  Rule: Incorrect tests can return to the test author
+
+    Example: Validator feedback repairs a test
+      Given an assembly line where incorrect tests return to the test author
+      And the validator says the tests are incorrect the first time
+      When the factory runs the "tetris" run
+      Then the test author has been called again with the validator's findings
+      And the run finishes after the corrected tests pass
