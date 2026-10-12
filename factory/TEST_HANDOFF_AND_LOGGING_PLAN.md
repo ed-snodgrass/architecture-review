@@ -5,7 +5,8 @@
 Allow a doer to request revised tests without editing test files, when the
 selected assembly line explicitly routes that request to `test_author`.
 Improve run logs so they identify machine catalysts, execution timestamps,
-doer reattempts, and every normal or error exit.
+doer reattempts, every normal or error exit, and committed work. Give each
+work commit a message naming the machine whose result caused the commit.
 
 ## Scope
 
@@ -23,6 +24,13 @@ doer reattempts, and every normal or error exit.
 - Append UTC ISO 8601 timestamps to every new run-log line.
 - Log each normal completion and error exit with reason and status.
 - Log only retries after the first doer execution as `reattempt N`.
+- When validated work is committed, append a commit record to `log.md`
+  containing the UTC timestamp, machine name that caused the commit, commit
+  hash, and commit message.
+- Include the causing machine name in every generated work commit message,
+  using the format `Factory work: <machine>`.
+- Do not log a commit for an unsuccessful validation, a test-revision
+  handoff, or any other path where no commit is created.
 
 ## BDD-first implementation
 
@@ -38,9 +46,14 @@ doer reattempts, and every normal or error exit.
    that labeled edge; reset attempts when that route is taken.
 6. Centralize log-line creation so every appended line has a UTC ISO timestamp,
    the exact machine catalyst where applicable, and structured exit details.
-7. Preserve test-change detection and ensure failed handoffs do not commit the
+7. Pass the machine that caused a successful commit into the commit helper;
+   create the `Factory work: <machine>` message and capture the resulting
+   commit hash.
+8. Append a commit record only after the commit succeeds, preserving the
+   existing target-path filtering and unrelated-change protections.
+9. Preserve test-change detection and ensure failed handoffs do not commit the
    doer's work.
-8. Run the focused feature files, the complete BDD suite, and TypeScript
+10. Run the focused feature files, the complete BDD suite, and TypeScript
    typecheck.
 
 ## Completion criteria
@@ -55,3 +68,8 @@ doer reattempts, and every normal or error exit.
 - Machine catalysts are logged as exact node names.
 - First doer execution is unnumbered; retries are logged as reattempts.
 - Both successful and error exits are logged with reasons and statuses.
+- Each successful work commit is logged with its causing machine, hash, and
+  message.
+- Each generated work commit message identifies its causing machine.
+- Failed validation and test-revision handoffs create neither a commit record
+  nor a work commit.

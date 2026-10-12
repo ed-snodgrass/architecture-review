@@ -116,12 +116,49 @@ Feature: Orchestration
       Given a plan with three tasks, none of them done
       When the factory runs the "tetris" run
       Then there are three new work commits
+      And the work commits name the machine that caused each commit
+      And the run log records each work commit
 
     Example: Finished work is not redone
       Given a plan whose first task is done
       When the factory runs the "tetris" run
       Then there are two new work commits
       And no new commit contains the work for the first task
+
+  Rule: Work commits identify and record their cause
+
+    A work commit is caused by the machine whose result routes the completed
+    task to the planner. The commit message and log record use that exact
+    machine name. A rejected attempt or test handoff is not a commit.
+
+    Example: A validated task commit is caused by the validator
+      Given a plan with three tasks, none of them done
+      When the factory runs the "tetris" run
+      Then every work commit message starts with "Factory work: validator"
+      And every work commit is recorded in the run log with its hash
+
+    Example: A direct doer-to-planner task commit is caused by the doer
+      Given the validator has been taken out of the "careful" line, so the doer goes straight to the planner
+      And a plan with three tasks, none of them done
+      When the factory runs the "tetris" run
+      Then every work commit message starts with "Factory work: doer"
+      And every work commit is recorded in the run log with its hash
+
+    Example: An unsuccessful attempt is not recorded as a commit
+      Given a plan with three tasks, none of them done
+      And the validator is never satisfied
+      And the factory allows at most one attempt at a task
+      When the factory runs the "tetris" run
+      Then there are no new commits
+      And the run log records no work commit
+
+    Example: A test revision handoff is not recorded as a commit
+      Given an assembly line where test revision requests return to the test author
+      And the test author has written the task's tests
+      And the doer says the tests need revision with findings
+      And the factory allows at most one attempt at a task
+      When the factory runs the "tetris" run
+      Then the run log records no work commit for the handoff
 
   Rule: The factory stops when the planner says the plan is complete
 
