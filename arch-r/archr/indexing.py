@@ -223,6 +223,20 @@ def _statement_end(tokens: list[Token], start: int) -> int:
     if tokens[start].text == '{':
         end = _balanced_end(tokens, start)
         return end if end is not None else len(tokens)
+    if tokens[start].text == 'do':
+        body_end = _statement_end(tokens, start + 1)
+        trailing = body_end + 1
+        if (trailing + 1 < len(tokens) and tokens[trailing].text == 'while'
+                and tokens[trailing + 1].text == '('):
+            condition_end = _balanced_end(tokens, trailing + 1)
+            if condition_end is not None:
+                # The condition is part of the do statement, so an enclosing
+                # for variable remains in scope until its final semicolon.
+                if (condition_end + 1 < len(tokens) and
+                        tokens[condition_end + 1].text == ';'):
+                    return condition_end + 1
+                return condition_end
+        return body_end
     if tokens[start].text in ('for', 'while', 'if', 'synchronized'):
         opening = start + 1
         if opening < len(tokens) and tokens[opening].text == '(':

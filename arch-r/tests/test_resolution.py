@@ -743,6 +743,85 @@ class Caller {
                    ('client', 12)],
             [('client', 7), ('client', 8), ('client', 9)])
 
+    def test_for_variable_remains_local_through_nested_while_and_do_bodies(self):
+        self.client('Client lookup(String id);')
+        bodies = (
+            ('while (client.lookup("condition") != null)\n'
+             '            client.lookup("body");', [7, 8], 9),
+            ('do\n            client.lookup("body");\n'
+             '        while (client.lookup("condition") != null);', [8, 9], 10),
+            ('if (true)\n            if (false) client.lookup("inner then");\n'
+             '            else client.lookup("inner else");\n'
+             '        else client.lookup("outer else");', [8, 9, 10], 11),
+        )
+        headers = (
+            'for (remote.Client client : clients)',
+            'for (remote.Client client = null; client != null; client = null)',
+        )
+        for header in headers:
+            for body, local_lines, after_line in bodies:
+                with self.subTest(header=header, body=body):
+                    path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run() {{
+        client.lookup("before");
+        {header}
+        {body}
+        client.lookup("after");
+    }}
+}}
+''')
+                    self.assert_receiver_partition(
+                        path, [('client', 5), ('client', after_line)],
+                        [('client', line) for line in local_lines])
+
+    def test_loop_exit_restores_enclosing_local_not_same_named_field(self):
+        self.client()
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        {
+            remote.Client client = null;
+            for (int i = 0; i < 1; i++) {
+                client.lookup("local in classic loop");
+            }
+            client.lookup("local after classic loop");
+            for (remote.Client item : clients)
+                client.lookup("local in enhanced loop");
+            client.lookup("local after enhanced loop");
+            this.client.lookup("explicit field");
+        }
+        client.lookup("field after block");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('this.client', 14), ('client', 16)],
+            [('client', 8), ('client', 10), ('client', 12), ('client', 13)])
+
+    def test_sibling_classic_loops_restore_field_between_declarations(self):
+        self.client()
+        path = self.put('src/main/java/shop/Caller.java', '''package shop;
+class Caller {
+    remote.Client client;
+    void run() {
+        for (remote.Client client = null; client != null; )
+            client.lookup("first local");
+        client.lookup("field between loops");
+        for (remote.Client client = null; client != null; ) {
+            client.lookup("second local");
+            this.client.lookup("explicit field");
+        }
+        client.lookup("field after loops");
+    }
+}
+''')
+        self.assert_receiver_partition(
+            path, [('client', 7), ('this.client', 10), ('client', 12)],
+            [('client', 6), ('client', 9)])
+
     def test_catch_parameter_shadows_only_its_body(self):
         self.client()
         for parameter in ('remote.Failure client',
