@@ -56,7 +56,23 @@ anonymous methods and initializers, constructor arguments, local classes,
 nested anonymous bodies, and trailing calls, including exact source lines.
 The check did not create or modify test files or execute Java code.
 
-## Current task verification
+## Source-citation validator follow-up verification
+
+The first unchecked subtask in the supplied plan concerns the historical
+line-14 expectation in `tests/test_indexing.py:176`. Inspection of the fixture
+confirms that `client.real()` is on Java source line 13: the text block closes
+on line 10, and lines 11–12 are comments. Preserve the indexer's 1-based line
+13 citation; changing it to 14 would introduce an off-by-one error.
+
+The supplied test now also expects line 13. No production correction or test
+edit is needed for this subtask. Fresh verification with
+`PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest tests.test_indexing.SourceIndexTests.test_comments_strings_and_text_blocks_do_not_create_declarations_or_calls -v`
+passes the targeted test. Running
+`PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -v` passes all 59
+tests. Only this documentation was changed; the plan remains unmodified and
+the subtask remains unchecked as requested.
+
+## Previous task verification
 
 The current supplied tests already expect line 13 for `client.real()`; the
 historical assertion defect above no longer occurs. No test files were edited
