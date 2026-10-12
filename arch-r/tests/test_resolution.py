@@ -338,6 +338,55 @@ class Caller {{
                 self.assertTrue(all(d.message.strip() for d in result.diagnostics))
                 self.assertEqual(result.links[0].caller_method.parameter_count, 1)
 
+    def test_array_parameter_names_are_extracted_independently_in_multi_parameter_methods(self):
+        self.client('Client clone();')
+        parameters = (
+            'String label, remote.Client client[], int count',
+            'remote.Client client[][], String label',
+            'String label, @flags.Mark(values = {"a", "b"}) final remote.Client client[]',
+            'String label, remote.Client client @flags.Dimension(value = "a,b") []',
+            'String label, remote.Client @flags.Dimension [] client @flags.Dimension [][]',
+            'String label, @flags.Mark(values = {"a", "b"}) remote.Client... client',
+        )
+        for parameter in parameters:
+            with self.subTest(parameter=parameter):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run({parameter}) {{
+        client.clone();
+        this.client.clone();
+    }}
+}}
+''')
+                self.assert_receiver_partition(path, [('this.client', 6)], [('client', 5)])
+                result = self.resolve()
+                expected_arity = 3 if parameter.endswith('int count') else 2
+                self.assertEqual(result.links[0].caller_method.parameter_count, expected_arity)
+                self.assertEqual(result.diagnostics[0].caller_method.parameter_count, expected_arity)
+
+    def test_differently_named_array_parameter_does_not_shadow_field(self):
+        self.client('Client clone();')
+        for parameter in ('remote.Client clients[]',
+                          'remote.Client clients[][]',
+                          'remote.Client[] clients[]',
+                          '@Deprecated final remote.Client clients[]',
+                          'remote.Client clients @flags.Dimension []',
+                          'remote.Client... clients'):
+            with self.subTest(parameter=parameter):
+                path = self.put('src/main/java/shop/Caller.java', f'''package shop;
+class Caller {{
+    remote.Client client;
+    void run({parameter}) {{
+        client.clone();
+        this.client.clone();
+        clients.clone();
+    }}
+}}
+''')
+                self.assert_receiver_partition(path, [('client', 5), ('this.client', 6)],
+                                               [('clients', 7)])
+
     def test_enhanced_for_iterable_uses_field_before_loop_variable_shadowing(self):
         self.client('Client[] items(); Client[][] rows(); Client clone(); void lookup(String id);')
         declarations = (
