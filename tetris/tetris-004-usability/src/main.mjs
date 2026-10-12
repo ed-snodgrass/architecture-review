@@ -5,7 +5,7 @@ import { render } from './render.mjs';
 const input = process.stdin;
 const output = process.stdout;
 if (!input.isTTY || !output.isTTY) {
-  console.error('Tetris requires an interactive terminal. Run: node src/main.mjs');
+  console.error('Tetris requires an interactive terminal. Run: npm start');
   process.exitCode = 1;
 } else {
   const game = new Game();
