@@ -677,7 +677,7 @@ Given("the validator's lens is {word}", function (lens: string) {
   this.validatorLens = lens;
 });
 
-function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined) {
+function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined, quiet = false) {
   const args = [join(this.workspace, 'run'), '--run', run];
   const settings = this.runs?.[run];
   if (!onlyName && settings) {
@@ -705,6 +705,8 @@ function runFactory(this: IWorld, run = this.runName, onlyName = false, target =
     args.push('--max-attempts', String(this.maxAttempts));
   }
 
+  if (quiet) args.push('--quiet');
+
   this.result = spawnSync('bash', args, {
     cwd: this.workspace,
     env: this.env ?? process.env,
@@ -723,6 +725,13 @@ When('the factory runs the {string} run', function (run: string) {
   this.plan = join(this.workspace, 'runs', run, 'plan.md');
   this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
   runFactory.call(this, run);
+});
+
+When('the factory runs the {string} run quietly', function (run: string) {
+  this.runName = run;
+  this.plan = join(this.workspace, 'runs', run, 'plan.md');
+  this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
+  runFactory.call(this, run, false, undefined, true);
 });
 
 When('the factory reads the assembly line', function () {
@@ -1104,6 +1113,21 @@ Then('the validator was not called for the {string} run', function (name: string
   const file = join(this.workspace, 'validator-runs');
   const runs = existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : [];
   assert.equal(runs.includes(name), false);
+});
+
+Then('the run log contains a doer action prompted by {string}', function (catalyst: string) {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.match(log, new RegExp(`^\\S+ \\[doer\\] Catalyst: ${catalyst}\\. .+$`, 'm'));
+});
+
+Then('the run log contains a date, machine name, catalyst, and summary on every line', function () {
+  const lines = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8').trim().split('\n');
+  assert.ok(lines.length > 0);
+  assert.ok(lines.every(line => /^\d{4}-\d{2}-\d{2}T[^ ]+ \[(planner|doer|validator)\] Catalyst: .+\. .+$/.test(line)));
+});
+
+Then('the run log does not exist', function () {
+  assert.equal(existsSync(join(this.workspace, 'runs', this.runName, 'log.md')), false);
 });
 
 Given('a new target, with a seed describing a game of Snake', function () {

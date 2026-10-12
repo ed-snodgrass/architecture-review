@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 type Edge = { from: string; to: string; label?: string };
@@ -13,8 +13,10 @@ function fail(message: string): never { console.error(message); process.exit(1);
 
 const runName = option('--run');
 const checking = args.includes('--check-assembly-line');
+const quiet = args.includes('--quiet');
 const runDirectory = runName ? resolve(factory, 'runs', runName) : undefined;
 const settingsFile = runDirectory && resolve(runDirectory, 'run.json');
+const logFile = runDirectory && resolve(runDirectory, 'log.md');
 const saved = settingsFile && existsSync(settingsFile)
   ? JSON.parse(readFileSync(settingsFile, 'utf8')) as Settings
   : undefined;
@@ -109,11 +111,13 @@ function prompt(name: string): string {
   }
   return answer;
 }
-function execute(name: string): Outcome {
+function execute(name: string, catalyst: string): Outcome {
   const execution = spawnSync(machineConfig(name).harness, [prompt(name)], { cwd: target, encoding: 'utf8', env: { ...process.env, FACTORY_RUN_NAME: runName! } });
   if (execution.error) fail(`Could not run the ${name === 'planner' ? 'agent' : name}`);
   process.stdout.write(execution.stdout);
-  return parseResult(execution.stdout) ?? fail(`Could not read the ${name === 'planner' ? "agent's" : `${name}'s`} result`);
+  const outcome = parseResult(execution.stdout) ?? fail(`Could not read the ${name === 'planner' ? "agent's" : `${name}'s`} result`);
+  if (!quiet) appendFileSync(logFile!, `${new Date().toISOString()} [${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}\n`);
+  return outcome;
 }
 function commitWork(): void {
   const paths = ['.', ':(exclude).assembly-lines'];
@@ -123,14 +127,18 @@ function commitWork(): void {
   }
 }
 let machine = edges.find(e => e.from === 'start')?.to ?? fail('The assembly line has no start');
+let catalyst = 'Seed';
 while (machine !== 'finish') {
   if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
-  const outcome = execute(machine);
+  const outcome = execute(machine, catalyst);
   const next = route(machine, outcome);
   if (machine === 'validator') findings = outcome.findings;
   if ((machine === 'doer' || machine === 'validator') && next === 'planner') {
     commitWork(); completingTask = true; findings = undefined; attempts = 0;
   } else if (machine === 'planner') completingTask = false;
+  catalyst = machine === 'validator' && next === 'doer'
+    ? 'Validator Feedback'
+    : machine[0].toUpperCase() + machine.slice(1);
   machine = next;
 }
 console.log('factory stopped');

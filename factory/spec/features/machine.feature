@@ -112,6 +112,24 @@ Feature: Machines
       When the factory runs the "tetris" run
       Then there are three new work commits
 
+  Rule: Each machine execution is recorded in the run log
+
+    The log records which machine ran, what prompted it, and a short summary
+    of the action it took. A doer retry is prompted by validator feedback.
+
+    Example: A run records machine actions and catalysts
+      Given a plan with three tasks, none of them done
+      And the validator is not satisfied the first time
+      When the factory runs the "tetris" run
+      Then the run log contains a doer action prompted by "Planner"
+      And the run log contains a doer action prompted by "Validator Feedback"
+      And the run log contains a date, machine name, catalyst, and summary on every line
+
+    Example: A quiet run does not write a log
+      Given a plan with three tasks, none of them done
+      When the factory runs the "tetris" run quietly
+      Then the run log does not exist
+
   Rule: What gets built follows the seed
 
     A factory that had Tetris tucked away inside it would pass every
