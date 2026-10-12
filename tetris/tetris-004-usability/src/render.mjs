@@ -10,6 +10,6 @@ export function render(game) {
     '+--------------------+',
     ...board.map(row => `|${row.map(cell => cell ? '[]' : '  ').join('')}|`),
     '+--------------------+',
-    'Arrows: move/rotate/drop | Space: hard drop | Q: quit',
+    '←→ move | ↑ rotate | ↓ soft | Space hard | Q/^C quit',
   ].join('\n');
 }

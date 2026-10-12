@@ -147,7 +147,7 @@ test('display overlays active cells without changing state and fits 24 rows', ()
   assert.equal(frame.split('\n').length, 24);
   assert.ok(frame.split('\n').every(line => line.length <= 80));
   assert.match(frame, /Score 0/);
-  assert.match(frame, /Arrows/);
+  assert.match(frame, /←→ move.*↑ rotate.*↓ soft.*Space hard.*Q\/\^C quit/);
   game.gameOver = true;
   game.active = null;
   assert.match(render(game), /GAME OVER/);
