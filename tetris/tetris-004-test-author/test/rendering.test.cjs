@@ -104,7 +104,7 @@ if (!vm.SourceTextModule) {
     lines() { return this.cells.map(row => row.join('').trimEnd()); }
   }
 
-  async function launch(configure = () => {}) {
+  async function launch(configure = () => {}, dimensions = { columns: 80, rows: 24 }) {
     const api = await import('../src/game.js');
     const game = api.createGame({ pieceSequence: ['O', 'T'] });
     configure(game, api);
@@ -113,14 +113,15 @@ if (!vm.SourceTextModule) {
     Object.assign(input, { isTTY: true, isRaw: false });
     input.setRawMode = value => { input.isRaw = value; return input; };
     const output = new PassThrough();
-    Object.assign(output, { isTTY: true, columns: 80, rows: 24 });
+    Object.assign(output, { isTTY: true, ...dimensions });
     output.on('data', chunk => screen.write(chunk));
     const proc = new EventEmitter();
+    const exits = [];
     Object.assign(proc, {
       stdin: input, stdout: output, stderr: output,
       env: { TERM: 'xterm', COLUMNS: '80', LINES: '24' },
       argv: [process.execPath, 'src/main.js'], cwd: () => root,
-      exit: () => {},
+      exit: code => exits.push(code ?? 0),
     });
     const timers = new Map();
     let now = 0;
@@ -161,7 +162,18 @@ if (!vm.SourceTextModule) {
     await entry.evaluate();
     await new Promise(resolve => setImmediate(resolve));
     return {
-      game, screen,
+      game, screen, input, exits, timers,
+      async resize(columns, rows) {
+        Object.assign(output, { columns, rows });
+        output.emit('resize');
+        await new Promise(resolve => setImmediate(resolve));
+      },
+      async send(bytes) {
+        input.write(bytes);
+        await new Promise(resolve => setImmediate(resolve));
+      },
+      // Elapse time without firing gravity: catches stale clock baselines on resize.
+      elapse(ms) { now += ms; },
       async advance(ms = 50) {
         now += ms;
         for (const fn of [...timers.values()]) fn();
@@ -182,6 +194,97 @@ if (!vm.SourceTextModule) {
     finally { session.dispose(); }
   }
   const blank = game => { game.active.cells = []; };
+  const state = game => JSON.parse(JSON.stringify({
+    board: game.board, active: game.active, score: game.score,
+    gameOver: game.gameOver, pieceIndex: game.pieceIndex,
+  }));
+
+  for (const [label, columns, rows] of [
+    ['narrow', 39, 24], ['short', 80, 23],
+  ]) {
+    test(`${label} terminal pauses gravity from launch and after resize`, async t => {
+      const session = await launch(undefined, { columns, rows });
+      t.after(() => session.dispose());
+      const initial = state(session.game);
+      assert.match(session.screen.lines().join('\n'), /resize|needs/i, 'display a size warning');
+      await session.advance(10000);
+      assert.deepEqual(state(session.game), initial, 'no unseen falling at startup');
+      await session.resize(80, 24);
+      await session.advance(session.game.fallIntervalMs);
+      assert.equal(session.game.active.y, initial.active.y + 1, 'gravity works when visible');
+      await session.resize(columns, rows);
+      const paused = state(session.game);
+      await session.advance(10000);
+      assert.deepEqual(state(session.game), paused, 'no unseen falling after shrinking');
+    });
+
+    test(`${label} terminal blocks movement and rotation until resized`, async t => {
+      const session = await launch(game => {
+        game.active = { type: 'T', x: 3, y: 4,
+          cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 1 }] };
+      });
+      t.after(() => session.dispose());
+      await session.resize(columns, rows);
+      for (const key of ['\x1b[D', '\x1b[C', '\x1b[B', '\x1b[A']) {
+        const before = state(session.game);
+        await session.send(key);
+        assert.deepEqual(state(session.game), before, 'each arrow is ignored behind the warning');
+      }
+      await session.resize(80, 24);
+      const before = state(session.game);
+      await session.send('\x1b[B');
+      assert.equal(session.game.active.y, before.active.y + 1, 'controls resume');
+      await session.send('\x1b[A');
+      assert.notDeepEqual(session.game.active.cells, before.active.cells, 'rotation resumes');
+    });
+
+    test(`${label} terminal resumes with a full gravity interval, without catch-up`, async t => {
+      const session = await launch();
+      t.after(() => session.dispose());
+      const interval = session.game.fallIntervalMs;
+      await session.advance(interval - 1);
+      await session.resize(columns, rows);
+      await session.advance(interval * 10);
+      session.elapse(interval * 10);
+      const before = state(session.game);
+      await session.resize(80, 24);
+      await session.advance(interval - 1);
+      assert.deepEqual(state(session.game), before, 'discard pre-pause remainder and hidden time');
+      await session.advance(1);
+      assert.equal(session.game.active.y, before.active.y + 1, 'one full interval falls exactly once');
+      assert.deepEqual(session.game.board, before.board);
+    });
+
+    test(`${label} terminal cannot invisibly lock a piece or reach blocked-spawn game over`, async t => {
+      const session = await launch((game, api) => {
+        while (api.move(game, 0, 1)) {}
+        const probe = api.createGame({ pieceSequence: ['T'] });
+        const blocker = api.getActiveCells(probe)[0];
+        game.board[blocker.y][blocker.x] = 'T';
+      });
+      t.after(() => session.dispose());
+      assert.equal(session.game.gameOver, false);
+      await session.resize(columns, rows);
+      const before = state(session.game);
+      await session.advance(session.game.fallIntervalMs * 100);
+      assert.deepEqual(state(session.game), before, 'no locking, spawning, scoring, or game over while hidden');
+      await session.resize(80, 24);
+      await session.advance(session.game.fallIntervalMs);
+      assert.equal(session.game.gameOver, true, 'fixture actually reaches game over when gravity resumes');
+      assert.notDeepEqual(session.game.board, before.board, 'visible gravity locks the floor piece');
+    });
+  }
+
+  for (const [label, key] of [['Q', 'q'], ['Ctrl+C', '\x03']]) {
+    test(`${label} still exits while the terminal is undersized`, async t => {
+      const session = await launch(undefined, { columns: 39, rows: 23 });
+      t.after(() => session.dispose());
+      await session.send(key);
+      assert.deepEqual(session.exits, [0]);
+      assert.equal(session.input.isRaw, false, 'restore terminal input');
+      assert.equal(session.timers.size, 0, 'stop gravity timers');
+    });
+  }
 
   test('all 20 board rows are visible with side, top, and bottom borders within 24 rows', async () => {
     const empty = await snapshot(blank);
