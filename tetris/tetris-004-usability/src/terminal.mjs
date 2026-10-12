@@ -1,6 +1,6 @@
 import readline from 'node:readline';
 import { Game } from './game.mjs';
-import { render } from './render.mjs';
+import { render, DISPLAY_COLUMNS, DISPLAY_ROWS } from './render.mjs';
 
 // Dependencies are injectable so input and terminal restoration can be tested.
 export function startTerminal({
@@ -19,12 +19,13 @@ export function startTerminal({
   let closed = false;
   let screenEntered = false;
   const originalRaw = Boolean(input.isRaw);
-  const largeEnough = () => output.columns >= 52 && output.rows >= 24;
+  const largeEnough = () => output.columns >= DISPLAY_COLUMNS && output.rows >= DISPLAY_ROWS;
   const draw = () => {
     if (closed) return;
     output.write('\x1b[H\x1b[2J' + (largeEnough()
       ? render(game)
-      : 'Paused: resize to 52 columns by 24 rows. Q/^C: quit'));
+      : `Paused: resize to ${DISPLAY_COLUMNS} columns by ${DISPLAY_ROWS} rows. Q/^C: quit`
+        .slice(0, Math.max(0, output.columns || 0))));
   };
   const cleanup = () => {
     if (closed) return;

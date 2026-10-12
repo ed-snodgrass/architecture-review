@@ -126,6 +126,17 @@ test('resize pauses input and gravity, resumes on enlargement, and permits quit'
   assertRestored(f);
 });
 
+test('resize warning fits even a narrow terminal without wrapping', t => {
+  const f = fixture(t);
+  for (const columns of [40, 20, 1]) {
+    f.output.columns = columns;
+    f.output.emit('resize');
+    const frame = f.text().split('\x1b[H\x1b[2J').at(-1);
+    assert.ok(frame.length <= columns);
+    assert.ok(!frame.includes('\n'));
+  }
+});
+
 test('game over stops gravity and gameplay but still accepts quit', t => {
   const f = fixture(t);
   f.game.board[0][4] = 'O';
