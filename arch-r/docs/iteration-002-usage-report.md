@@ -80,6 +80,11 @@ The revised supplied tests resolve the diagnostic-placement assertion defect
 and provide durable multi-client diagnostic isolation and deterministic-output
 coverage.
 
-`python3 -m unittest discover -s tests -q` passes all 175 tests, and
-`git diff --check` passes. No test files or plan checkboxes were changed in this
-run. No further test revision is needed for this task.
+`python3 -m unittest discover -s tests -q` passes all 177 tests, and
+`git diff --check` passes. The supplied coverage now also verifies shared
+method-overload uncertainty in each affected finding and shared interface
+ambiguity without attributing unrelated implementation methods to a client.
+The existing method-level relevance implementation satisfies these cases;
+no production changes or test workarounds were needed. No test files or plan
+checkboxes were changed in this run. No further test revision is needed for
+this task.

@@ -389,6 +389,80 @@ class HttpGateway implements Port {
             self.assertNotIn('OutsideModule', section)
         self.assertEqual(first.encode('utf-8'), self.report().encode('utf-8'))
 
+    def test_shared_overload_uncertainty_stays_in_each_affected_finding(self):
+        self.extra_clients()
+        self.put('SharedGateway', '''package sample;
+class SharedGateway {
+    Client products;
+    BillingClient billing;
+    String lookup(String id) {
+        products.get(id);
+        return billing.get(id);
+    }
+    String lookup(Integer id) {
+        products.get("fallback");
+        return billing.get("fallback");
+    }
+    OutsideModule missing;
+    void health() { missing.fetch(); }
+}
+''')
+        self.put('Order', '''package sample;
+class Order {
+    SharedGateway gateway;
+    void place(String id) { gateway.lookup(id); }
+}
+''')
+        first = self.report()
+        context = self.module_diagnostics(first)
+        for system in ('products', 'billing'):
+            finding = self.finding(first, system)
+            self.assertRegex(finding.lower(), r'ambigu')
+            self.citations(finding, 'Order', 4)
+            self.citations(finding, 'SharedGateway', 5, 9)
+            self.assertNotRegex(html.unescape(finding), r'Order\s*(?:→|->|-->)')
+            self.assertNotIn('sample/SharedGateway.java:14', finding)
+        stock = self.finding(first, 'stock')
+        for section in (stock, context):
+            self.assertNotIn('sample/Order.java:4', section)
+            self.assertNotIn('sample/SharedGateway.java:5', section)
+            self.assertNotIn('sample/SharedGateway.java:9', section)
+        # A diagnostic may belong to both affected findings, but not module context.
+        self.assertEqual(first.count('src/main/java/sample/Order.java:4'), 2)
+        self.assertEqual(first.count('src/main/java/sample/SharedGateway.java:14'), 1)
+        self.citations(context, 'SharedGateway', 14)
+        self.assertEqual(first.encode('utf-8'), self.report().encode('utf-8'))
+
+    def test_shared_interface_ambiguity_keeps_each_clients_observed_methods_separate(self):
+        self.extra_clients()
+        self.interface_route(second=True)
+        # One candidate reaches products only through health(), not the invoked lookup().
+        self.put('OtherGateway', '''package sample;
+class OtherGateway implements Port {
+    StockClient stock;
+    Client products;
+    public String lookup(String id) { return stock.get(id); }
+    String health(String id) { return products.get(id); }
+}
+''')
+        first = self.report()
+        product = self.finding(first, 'products')
+        stock = self.finding(first, 'stock')
+        billing = self.finding(first, 'billing')
+        for section in (product, stock):
+            self.assertRegex(section.lower(), r'ambigu|multiple implementation')
+            self.citations(section, 'Order', 4)
+            self.citations(section, 'Port', 3)
+            self.citations(section, 'HttpGateway', 2)
+            self.citations(section, 'OtherGateway', 2)
+            self.assertNotRegex(html.unescape(section), r'Order\s*(?:→|->|-->)')
+        self.citations(product, 'OtherGateway', 6)
+        self.assertNotIn('sample/OtherGateway.java:6', stock)
+        self.assertNotIn('sample/Order.java:4', billing)
+        self.assertNotIn('Port', billing)
+        self.assertNotIn('## Module-wide unresolved connections', first)
+        self.assertEqual(first.encode('utf-8'), self.report().encode('utf-8'))
+
     def test_declarations_alone_retain_dependency_without_claiming_unused(self):
         self.put('Holder', '''package sample;
 class Holder {
