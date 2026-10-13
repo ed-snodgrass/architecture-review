@@ -86,7 +86,10 @@ interface Shipping {}
         report = render_report(self.module, [])
         self.assertIn('No statically declared Feign outbound HTTP dependencies were found.', report)
         self.assertIn('does not mean the module makes no outbound calls by other means', report)
-        self.assertIn('did not inspect callers', report)
+        self.assertNotIn('did not inspect callers', report.lower())
+        for supported_form in ('explicitly typed fields', 'constructor-injected fields',
+                               'field.method(...)', 'this.field.method(...)'):
+            self.assertIn(supported_form, report)
         self.assertIn('separate domain-facing port or adapter is needed', report)
         self.assertIn('not assumed to be a sufficient architectural adapter', report)
         self.assertEqual(report.count('```mermaid'), 1)
