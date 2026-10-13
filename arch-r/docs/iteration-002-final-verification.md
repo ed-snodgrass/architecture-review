@@ -105,3 +105,43 @@ the public scope text against the seed; no faulty assertions or missing
 behavioral coverage were found for this task. Tests need revision: **false**.
 No test files or production code were edited in this follow-up. Existing
 supplied test and unrelated factory changes were left untouched.
+
+## Current final-task verification (219-test supplied suite)
+
+Re-read the iteration 002 seed and plan and performed the first unfinished
+final-verification task. The parent task remains unchecked and `complete: false`
+is unchanged; no plan or test files were edited.
+
+Checks on the current supplied working tree:
+
+- `python3 -m unittest discover -s tests -v`: **219 tests passed**.
+- `python3 -m unittest discover` (README command): **219 tests passed**.
+- `python3 -m unittest discover -s tests` with an underscore/bracket-bearing
+  disposable `TMPDIR`: **219 tests passed**.
+- `git diff --check`: passed.
+
+The supplied boundary suite now has five tests, including symlinked Java file
+and directory exclusion and replacement of an existing report on repeated
+analysis. These tests guard reads of external link targets, preserve link
+identities and input snapshots, check that unrelated caller files/reports remain
+unchanged, and require byte-identical reports without leftover temporary outputs.
+The previously recorded three boundary tests continue to cover process-launch
+prohibition, excluded inputs, and rejection of extra CLI flags. The subprocesses
+used to exercise the Python CLI do not compile or execute analyzed Java.
+
+Reviewed `archr/cli.py`, `archr/module.py`, the source inventory in
+`archr/discovery.py`, its use in `archr/indexing.py`, `archr/traversal.py`, and
+usage/guidance rendering in `archr/report.py`. The CLI still exposes only the
+module argument, passes `DEFAULT_MAX_CALL_STEPS = 2` into traversal, and writes
+only the expected Markdown report via atomic replacement. Discovery and indexing
+share the main-Java source inventory and exclude symlink entries; Maven metadata
+is read only for module identity. Traversal retains method-level matching,
+possible interface certainty, and explicit depth/cycle boundaries. Report
+language and README scope keep conditional architectural suggestions separate
+from observed calls and do not claim runtime execution or architectural
+acceptance.
+
+No production change was needed for this verification task. No analyzed Java
+was compiled, executed, or modified. The pre-existing boundary-test additions
+and unrelated factory changes were left untouched. The supplied tests are
+sufficient for this task; **tests_need_revision: false**.

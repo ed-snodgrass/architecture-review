@@ -117,6 +117,86 @@ class Order {
         self.assertEqual(set(after) - set(before), {'arch-r-report-orders.md'})
         self.assertEqual(before, {key: after[key] for key in before})
 
+    def test_symlinked_java_files_and_directories_do_not_expand_analysis_boundary(self):
+        outside = self.put('other/src/main/java/external/OutsideClient.java', '''package external;
+import org.springframework.cloud.openfeign.FeignClient;
+@FeignClient(name="OUTSIDE_BOUNDARY_SENTINEL", url="https://outside.example")
+public interface OutsideClient { String get(String id); }
+''')
+        outside_caller = self.put('other/src/main/java/external/OutsideCaller.java', '''package external;
+class OutsideCaller {
+    sample.Client client;
+    String call(String id) { return client.get(id); }
+}
+''')
+        source_root = self.module / 'src/main/java'
+        linked_file = source_root / 'LinkedClient.java'
+        linked_directory = source_root / 'linked'
+        linked_file.symlink_to(outside)
+        linked_directory.symlink_to(outside.parent, target_is_directory=True)
+        link_targets = {p: os.readlink(p) for p in (linked_file, linked_directory)}
+        before = self.snapshot()
+        excluded = {outside.resolve(), outside_caller.resolve()}
+        original_open, original_io_open = open, io.open
+
+        def guarded(opener):
+            def checked(file, *args, **kwargs):
+                if isinstance(file, (str, bytes, os.PathLike)):
+                    self.assertNotIn(Path(os.fsdecode(file)).resolve(), excluded,
+                                     'Analysis followed a link outside its source boundary')
+                return opener(file, *args, **kwargs)
+            return checked
+
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(self.work)
+            with patch('builtins.open', guarded(original_open)), \
+                    patch('io.open', guarded(original_io_open)), \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(main(['analyze', str(self.module)]), 0)
+        finally:
+            os.chdir(old_cwd)
+        report = self.output.read_text(encoding='utf-8')
+        self.assertIn('sample.Order', report)
+        self.assertNotIn('OUTSIDE_BOUNDARY_SENTINEL', report)
+        self.assertNotIn('OutsideCaller', report)
+        self.assertNotIn('OutsideClient', report)
+        self.assertEqual(link_targets, {p: os.readlink(p) for p in link_targets})
+        after = self.snapshot()
+        self.assertEqual(set(after) - set(before), {'arch-r-report-orders.md'})
+        self.assertEqual(before, {key: after[key] for key in before})
+
+    def test_repeat_analysis_only_replaces_expected_report_and_is_byte_identical(self):
+        self.output.write_bytes(b'PREVIOUS_REPORT_SENTINEL\n')
+        self.put('arch-r-report-unrelated.md', 'UNRELATED_REPORT_SENTINEL\n')
+        self.put('notes.txt', 'CALLER_FILE_SENTINEL\n')
+        before = self.snapshot()
+        first_report = None
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(self.work)
+            for run in range(2):
+                with self.subTest(run=run), redirect_stdout(io.StringIO()), \
+                        redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['analyze', str(self.module)]), 0)
+                after = self.snapshot()
+                self.assertEqual(set(before), set(after),
+                                 'Analysis must not leave temporary or extra outputs')
+                self.assertEqual(
+                    {key: value for key, value in before.items()
+                     if key != self.output.name},
+                    {key: value for key, value in after.items()
+                     if key != self.output.name})
+                report = self.output.read_bytes()
+                self.assertNotIn(b'PREVIOUS_REPORT_SENTINEL', report)
+                self.assertIn(b'sample.Order', report)
+                if first_report is None:
+                    first_report = report
+                else:
+                    self.assertEqual(first_report, report)
+        finally:
+            os.chdir(old_cwd)
+
     def test_cli_has_no_depth_configuration_or_alternative_output_flags(self):
         before = self.snapshot()
         for extra in (['--depth', '3'], ['--max-depth', '3'],
