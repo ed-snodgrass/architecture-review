@@ -382,6 +382,13 @@ Then("it reports that it could not read the validator's result", function () {
   assert.match(output, /could not read the validator's result/i);
 });
 
+Then("it reports the validator's execution details", function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /machine=validator/);
+  assert.match(output, /status=0/);
+  assert.ok(output.includes('stdout="The work needs another look.\\n"'));
+});
+
 Then('no agent has been called', function () {
   assert.equal(
     existsSync(join(this.workspace, 'agent-calls')),

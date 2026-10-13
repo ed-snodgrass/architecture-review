@@ -116,6 +116,18 @@ function machineConfig(name: string): Required<Pick<Config, 'harness'>> & Config
 function parseResult(output: string): Outcome | undefined {
   for (const text of output.trim().split('\n').reverse()) { try { return JSON.parse(text) as Outcome; } catch {} }
 }
+function agentFailure(name: string, harness: string, execution: ReturnType<typeof spawnSync>): string {
+  const details = [
+    `machine=${name}`,
+    `harness=${JSON.stringify(harness)}`,
+    `status=${execution.status === null ? 'null' : execution.status}`,
+    `signal=${JSON.stringify(execution.signal)}`,
+    `error=${JSON.stringify(execution.error?.message ?? '')}`,
+    `stderr=${JSON.stringify(execution.stderr ?? '')}`,
+    `stdout=${JSON.stringify(execution.stdout ?? '')}`,
+  ].join(' ');
+  return `Could not read the ${name === 'planner' ? "agent's" : `${name}'s`} result: ${details}`;
+}
 function fields(name: string): string[] {
   return [...new Set(edges.filter(e => e.from === name && e.label).map(e => e.label!.replace(/^not /, '')))];
 }
@@ -176,10 +188,16 @@ function prompt(name: string): string {
   return answer;
 }
 function execute(name: string, catalyst: string): Outcome {
-  const execution = spawnSync(machineConfig(name).harness, [prompt(name)], { cwd: target, encoding: 'utf8', env: { ...process.env, FACTORY_RUN_NAME: runName! } });
-  if (execution.error) fail(`Could not run the ${name === 'planner' ? 'agent' : name}`);
+  const harness = machineConfig(name).harness;
+  const execution = spawnSync(harness, [prompt(name)], { cwd: target, encoding: 'utf8', env: { ...process.env, FACTORY_RUN_NAME: runName! } });
+  if (execution.error) {
+    const message = `Could not run the ${name === 'planner' ? 'agent' : name}: machine=${name} harness=${JSON.stringify(harness)} error=${JSON.stringify(execution.error.message)}`;
+    appendLog(`[agent-error] ${message}`);
+    fail(message);
+  }
   process.stdout.write(execution.stdout);
-  const outcome = parseResult(execution.stdout) ?? fail(`Could not read the ${name === 'planner' ? "agent's" : `${name}'s`} result`);
+  if (execution.stderr) process.stderr.write(execution.stderr);
+  const outcome = parseResult(execution.stdout) ?? fail(agentFailure(name, harness, execution));
   if (!quiet) appendLog(`[${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}`);
   return outcome;
 }

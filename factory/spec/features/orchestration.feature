@@ -213,6 +213,7 @@ Feature: Orchestration
       And the validator answers in prose, with no result
       When the factory runs the "tetris" run
       Then it reports that it could not read the validator's result
+      And it reports the validator's execution details
       And there are no new commits
       And the factory has stopped
 
