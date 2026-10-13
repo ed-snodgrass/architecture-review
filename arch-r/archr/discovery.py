@@ -45,6 +45,7 @@ class FeignClient:
     body_start: int = 0
     body_end: int = 0
     operations: tuple[Operation, ...] = ()
+    qualified_name: str = ''
 
 
 @dataclass(frozen=True)
@@ -153,7 +154,13 @@ def _literal(tokens: list[Token]) -> str | None:
 def extract_clients(source: str, source_path: str) -> list[FeignClient]:
     tokens = tokenize(source)
     imports = set()
+    package = ''
     for index, token in enumerate(tokens):
+        if token.text == "package":
+            end = index + 1
+            while end < len(tokens) and tokens[end].text != ";":
+                end += 1
+            package = "".join(t.text for t in tokens[index + 1:end])
         if token.text == "import":
             end = index + 1
             while end < len(tokens) and tokens[end].text != ";":
@@ -206,6 +213,7 @@ def extract_clients(source: str, source_path: str) -> list[FeignClient]:
             expression(url_tokens) if url is None else None,
             tokens[opening].end, tokens[closing].start,
             extract_operations(source, source_path, tokens, opening, closing),
+            package + '.' + interface_name if package else interface_name,
         ))
     return clients
 
