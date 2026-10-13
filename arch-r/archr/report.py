@@ -89,17 +89,30 @@ def _relevant_diagnostics(client: FeignClient, usage: UsageTraversal):
             methods.update((step.link.caller_method, step.link.target_method))
             if step.interface_connection:
                 methods.add(step.interface_connection.implementation_method)
-    diagnostics = tuple(item for item in usage.diagnostics
-                        if (item.receiver_field is not None
-                            and item.receiver_field.type_name == client.qualified_name)
-                        or any(method in methods or method.source_path == client.source_path
-                               for method in item.candidates))
+    # A failed call is relevant only through its resolved field type or
+    # candidate endpoints on this client's route. Sharing a caller method or
+    # source file with the integration is not receiver/type evidence.
+    def relevant_call(item):
+        if item.receiver_field is None:
+            return False
+        return (item.receiver_field.type_name == client.qualified_name
+                or not methods.isdisjoint(item.candidates))
+
+    def relevant_interface(item):
+        if item.link.target_method in methods:
+            return True
+        # Ambiguous implementations are not traversed. A candidate's exact
+        # implementing method on the route still connects this uncertainty to
+        # the client; other methods in the same class do not.
+        target = item.link.target_method
+        return any(method in methods
+                   and method.name == target.name
+                   and method.parameter_count == target.parameter_count
+                   for candidate in item.candidates for method in candidate.methods)
+
+    diagnostics = tuple(item for item in usage.diagnostics if relevant_call(item))
     interfaces = tuple(item for item in usage.interface_diagnostics
-                       if item.link.target_method in methods
-                       or any(method in methods
-                              and method.name == item.link.target_method.name
-                              and method.parameter_count == item.link.target_method.parameter_count
-                              for candidate in item.candidates for method in candidate.methods))
+                       if relevant_interface(item))
     return diagnostics, interfaces
 
 
