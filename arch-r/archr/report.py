@@ -303,25 +303,8 @@ def _usage_diagram_lines(module: Module, clients: list[FeignClient],
 
 
 def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
-    """Count recorded invocation gaps, independently of finding relevance.
-
-    Resolver and failed interface routes have invocation evidence. Traversal
-    cutoffs, destination uncertainty and followed possible links do not.
-    """
-    sites = {}
-    for diagnostic in (*usage.diagnostics, *usage.interface_diagnostics):
-        invocation = (diagnostic.invocation if hasattr(diagnostic, 'invocation')
-                      else diagnostic.link.invocation)
-        # Indexed sites use offsets; legacy manually supplied invocations retain
-        # a stable fallback without requiring any new source analysis.
-        location = (('offset', invocation.source_offset)
-                    if invocation.source_offset is not None else
-                    ('legacy', invocation.line, invocation.receiver,
-                     invocation.method_name, invocation.argument_count))
-        key = invocation.source_path, location
-        if key not in sites:
-            sites[key] = (invocation, set())
-        sites[key][1].add(diagnostic.message)
+    """Present retained module-wide gaps, independently of finding relevance."""
+    sites = usage.untraced_sites
     lines = ['', '## Analysis coverage', '']
     count = len(sites)
     if not count:
@@ -332,17 +315,14 @@ def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
                  'Use `--show-analysis-limitations` for details.')
     if show_details:
         lines.extend(['', '### Untraced call sites', ''])
-        ordered = sorted(sites.values(), key=lambda site: (
-            site[0].source_path, site[0].line,
-            site[0].source_offset if site[0].source_offset is not None else -1,
-            site[0].receiver, site[0].method_name, site[0].argument_count))
-        for invocation, reasons in ordered:
+        for site in sites:
+            invocation, reasons = site.invocation, site.reasons
             offset = (f' (source offset {invocation.source_offset})'
                       if invocation.source_offset is not None else '')
             call = f'{invocation.receiver}.{invocation.method_name}({invocation.argument_count} arguments)'
             lines.append(f'- {_evidence(invocation.source_path, invocation.line)}{offset}: '
                          f'{_markdown(call)} — '
-                         + ' '.join(_markdown(reason) for reason in sorted(reasons)))
+                         + ' '.join(_markdown(reason) for reason in reasons))
     return lines
 
 

@@ -17,6 +17,8 @@ from unittest.mock import patch
 
 from archr.cli import main
 from archr.module import load_module
+from archr.resolution import resolve_index
+from archr.indexing import index_module
 from archr.traversal import trace_usage
 
 
@@ -265,6 +267,96 @@ class Plain {
         self.assertEqual(len(diagnostics), 2)
         self.assertNotEqual(diagnostics[0].invocation, diagnostics[1].invocation,
                             'Distinct invocation sites must not collapse in deduplication')
+
+    def test_retains_all_resolver_diagnostics_independent_of_client_traversal(self):
+        self.client()
+        self.client('BillingClient', 'billing')
+        self.put('Shared', '''package sample;
+class Shared {
+    Client products;
+    BillingClient billing;
+    void work(Request request) { products.get("id"); billing.get("id"); request.getId(); }
+}
+''')
+        self.put('First', '''package sample;
+class First { Shared shared; void run(Request request) { shared.work(request); } }
+''')
+        self.put('Second', '''package sample;
+class Second { Shared shared; void run(Request request) { shared.work(request); } }
+''')
+        self.put('Disconnected', '''package sample;
+class Disconnected { void run(Request request) { request.getName(); } }
+''')
+        module = load_module(str(self.module))
+        recorded = resolve_index(index_module(module)).diagnostics
+        self.assertEqual(len(recorded), 2)
+        self.assertEqual({d.code for d in recorded}, {'unsupported-receiver'})
+        for depth in (1, 2, 3):
+            with self.subTest(depth=depth):
+                usage = trace_usage(module, max_depth=depth)
+                self.assertEqual(usage.diagnostics, recorded,
+                                 'Traversal must retain even disconnected diagnostics unchanged')
+                self.assertEqual({c.client_type for c in usage.chains},
+                                 {'sample.Client', 'sample.BillingClient'})
+                if depth > 1:
+                    self.assertEqual(len(usage.chains), 4)
+        self.assert_coverage(self.report(), 2)
+        detailed = self.report(details=True)
+        self.assert_coverage(detailed, 2)
+        for path, line, call in (('Shared', 5, 'getId'), ('Disconnected', 2, 'getName')):
+            entries = [row for row in detailed.splitlines()
+                       if f'src/main/java/sample/{path}.java:{line}' in row and call in row]
+            self.assertEqual(len(entries), 1, detailed)
+
+    def test_module_wide_identity_includes_source_path(self):
+        # Equal-length type names keep every call's line and lexer offset equal.
+        for name in ('Alpha', 'Bravo'):
+            self.put(name, f'''package sample;
+class {name} {{
+    void work(Request request) {{ request.getId(); request.getId(); }}
+}}
+''')
+        diagnostics = trace_usage(load_module(str(self.module))).diagnostics
+        self.assertEqual(len(diagnostics), 4)
+        self.assertEqual(len({d.invocation for d in diagnostics}), 4)
+        by_path = {}
+        for diagnostic in diagnostics:
+            by_path.setdefault(diagnostic.invocation.source_path, []).append(diagnostic.invocation)
+        self.assertEqual(len(by_path), 2)
+        calls = list(by_path.values())
+        self.assertEqual([i.source_offset for i in calls[0]],
+                         [i.source_offset for i in calls[1]])
+        self.assert_coverage(self.report(), 4)
+        detailed = self.report(details=True)
+        self.assert_coverage(detailed, 4)
+        for name in ('Alpha', 'Bravo'):
+            entries = [row for row in detailed.splitlines()
+                       if f'src/main/java/sample/{name}.java:3' in row]
+            self.assertEqual(len(entries), 2, detailed)
+            self.assertEqual(len(set(entries)), 2)
+
+    def test_same_line_sites_across_methods_and_nested_calls_remain_distinct(self):
+        self.put('Plain', '''package sample;
+class Plain {
+    void first(Request request) { request.getId(); } void second(Request request) { request.getId(); request.accept(request.getId()); }
+}
+''')
+        diagnostics = trace_usage(load_module(str(self.module))).diagnostics
+        self.assertEqual(len(diagnostics), 4)
+        self.assertEqual({d.code for d in diagnostics}, {'unsupported-receiver'})
+        self.assertEqual({d.invocation.line for d in diagnostics}, {3})
+        self.assertEqual(len({d.invocation for d in diagnostics}), 4)
+        self.assertEqual(sorted(d.invocation.method_name for d in diagnostics),
+                         ['accept', 'getId', 'getId', 'getId'])
+        self.assertEqual({d.caller_method.name for d in diagnostics}, {'first', 'second'})
+        self.assert_coverage(self.report(), 4)
+        detailed = self.report(details=True)
+        self.assert_coverage(detailed, 4)
+        entries = [row for row in detailed.splitlines()
+                   if 'src/main/java/sample/Plain.java:3' in row]
+        self.assertEqual(len(entries), 4, detailed)
+        self.assertEqual(len(set(entries)), 4,
+                         'Method ownership and nesting must not merge same-line sites')
 
     def test_details_sort_by_path_then_location_not_creation_order(self):
         for name in ('ZPlain', 'APlain'):

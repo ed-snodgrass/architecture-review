@@ -26,6 +26,20 @@ class Invocation:
     # Absolute lexer offset distinguishes even identical calls on one line.
     source_offset: int | None = None
 
+    @property
+    def site_identity(self) -> tuple:
+        """Module-wide location identity, independent of diagnostic reasons.
+
+        Indexed calls always have a lexer offset, including nested and repeated
+        calls on one line. Keep a fallback for manually supplied legacy calls
+        that predate offsets; no additional call recognition is implied.
+        """
+        location = (('offset', self.source_offset)
+                    if self.source_offset is not None else
+                    ('legacy', self.line, self.receiver,
+                     self.method_name, self.argument_count))
+        return self.source_path, location
+
 
 @dataclass(frozen=True)
 class Method:

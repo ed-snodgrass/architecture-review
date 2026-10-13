@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .indexing import Method, index_module
+from .indexing import Invocation, Method, index_module
 from .interfaces import (InterfaceConnection, InterfaceDiagnostic,
                          resolve_interface_index)
 from .module import Module
@@ -31,11 +31,41 @@ class UsageChain:
 
 
 @dataclass(frozen=True)
+class UntracedSite:
+    invocation: Invocation
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class UsageTraversal:
     max_depth: int
     chains: tuple[UsageChain, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
     interface_diagnostics: tuple[InterfaceDiagnostic, ...] = ()
+
+    @property
+    def untraced_sites(self) -> tuple[UntracedSite, ...]:
+        """Distinct recorded gaps, including those outside any client chain.
+
+        Preserve raw diagnostics above. Only failed call resolution and failed
+        interface routes contribute sites: destination uncertainty, followed
+        possible links and traversal boundaries are not untraced invocations.
+        """
+        sites = {}
+        records = [(item.invocation, item.message) for item in self.diagnostics]
+        records.extend((item.link.invocation, item.message)
+                       for item in self.interface_diagnostics)
+        for invocation, reason in records:
+            key = invocation.site_identity
+            if key not in sites:
+                sites[key] = (invocation, set())
+            sites[key][1].add(reason)
+        ordered = sorted(sites.values(), key=lambda site: (
+            site[0].source_path, site[0].line,
+            site[0].source_offset if site[0].source_offset is not None else -1,
+            site[0].receiver, site[0].method_name, site[0].argument_count))
+        return tuple(UntracedSite(invocation, tuple(sorted(reasons)))
+                     for invocation, reasons in ordered)
 
 
 def _endpoint(type_name: str, method: Method):
