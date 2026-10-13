@@ -58,6 +58,9 @@ class Field:
     type_name: str
     source_path: str
     line: int
+    # Preserve the legacy declaration-start line for tracing; inventories can
+    # cite each individual name in a multiple-field declaration instead.
+    name_line: int | None = None
 
 
 @dataclass(frozen=True)
@@ -72,11 +75,18 @@ class JavaType:
     abstract: bool = False
     generic: bool = False
     feign: bool = False
+    # Direct source parents only; no transitive inheritance resolution.
+    extends: tuple[str, ...] = ()
+    # Feign's declaration evidence is its annotation, not the interface keyword.
+    feign_line: int | None = None
 
 
 @dataclass(frozen=True)
 class SourceIndex:
     types: tuple[JavaType, ...]
+    # Include unindexed enums/records for exact library-type exclusion without
+    # extending method resolution to those source forms.
+    declared_type_names: tuple[str, ...] = ()
 
 
 _IDENTIFIER = re.compile(r'[A-Za-z_$][\w$]*\Z')
@@ -451,6 +461,35 @@ def _resolve(name: str, package: str, imports: dict[str, str]) -> str:
     return package + '.' + name if package else name
 
 
+def _field_declarators(tokens: list[Token]) -> list[list[Token]]:
+    """Split field names without mistaking initializer comparisons for generics.
+
+    Type arguments in constructor or method expressions can contain commas;
+    ordinary less-than/shift operators cannot hide the next field declaration.
+    """
+    groups = [[]]
+    depth = 0
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token.text == '<':
+            end = _initializer_type_arguments_end(tokens, i)
+            if end is not None:
+                groups[-1].extend(tokens[i:end + 1])
+                i = end + 1
+                continue
+        if token.text == ',' and depth == 0:
+            groups.append([])
+        else:
+            groups[-1].append(token)
+            if token.text in ('(', '[', '{'):
+                depth += 1
+            elif token.text in (')', ']', '}'):
+                depth -= 1
+        i += 1
+    return [group for group in groups if group]
+
+
 def _fields(declaration, path, package, imports):
     clean = _clean(declaration)
     if not clean or not _IDENTIFIER.fullmatch(clean[0].text):
@@ -464,11 +503,13 @@ def _fields(declaration, path, package, imports):
     if i < len(clean) and clean[i].text in ('<', '['):
         return []
     fields = []
-    for group in _groups(clean[i:]):
+    for group in _field_declarators(clean[i:]):
         if group and _IDENTIFIER.fullmatch(group[0].text) and (
                 len(group) == 1 or group[1].text == '='):
+            # Each declarator is a separate integration candidate. Cite its
+            # own name, including multi-line, multiple-field declarations.
             fields.append(Field(group[0].text, _resolve(name, package, imports),
-                                path, declaration[0].line))
+                                path, declaration[0].line, group[0].line))
     return fields
 
 
@@ -535,12 +576,78 @@ def _members(tokens, opening, closing, path, package, imports):
     return tuple(fields), tuple(methods)
 
 
+def _scoped_type_imports(tokens, opening, closing, header, qualified_name, imports):
+    """Keep lexical type shadows from masquerading as imported library types.
+
+    Member types and type parameters need no general type analysis here: their
+    names merely rule out an exact imported Spring type. Do not inspect local
+    types inside method bodies, which cannot shadow a field declaration.
+    """
+    scoped = dict(imports)
+    scoped[qualified_name.rsplit('.', 1)[-1]] = qualified_name
+    if header and header[0].text == '<':
+        depth = 1
+        end = 1
+        while end < len(header) and depth:
+            depth += (header[end].text == '<') - (header[end].text == '>')
+            end += 1
+        for group in _groups(header[1:end - 1]):
+            clean = _clean(group)
+            if clean and _IDENTIFIER.fullmatch(clean[0].text):
+                name = clean[0].text
+                scoped[name] = f'<type parameter {name}>'
+    i = opening + 1
+    while i < closing:
+        if tokens[i].text == '@':
+            _, _, i = _annotation(tokens, i)
+            continue
+        if (tokens[i].text in ('class', 'interface', 'enum', 'record') and
+                tokens[i - 1].text != '.' and i + 1 < closing and
+                _IDENTIFIER.fullmatch(tokens[i + 1].text)):
+            name = tokens[i + 1].text
+            scoped[name] = qualified_name + '.' + name
+        if tokens[i].text in ('{', '(', '['):
+            end = _balanced_end(tokens, i)
+            if end is not None:
+                i = end + 1
+                continue
+        i += 1
+    return scoped
+
+
+def _compilation_unit_types(tokens: list[Token]) -> set[str]:
+    """Collect sibling type names without inspecting method or initializer bodies.
+
+    Source-local declarations must never be mistaken for an explicitly imported
+    library type, even when the sibling appears later in the compilation unit.
+    """
+    names = set()
+    i = 0
+    while i < len(tokens):
+        if tokens[i].text == '@':
+            _, _, i = _annotation(tokens, i)
+            continue
+        if (tokens[i].text in ('class', 'interface', 'enum', 'record') and
+                (i == 0 or tokens[i - 1].text != '.') and
+                i + 1 < len(tokens) and _IDENTIFIER.fullmatch(tokens[i + 1].text)):
+            names.add(tokens[i + 1].text)
+        if tokens[i].text in ('{', '(', '['):
+            end = _balanced_end(tokens, i)
+            if end is not None:
+                i = end + 1
+                continue
+        i += 1
+    return names
+
+
 def _extract(source: str, path: str) -> list[JavaType]:
     tokens = tokenize(source)
+    local_types = _compilation_unit_types(tokens)
     package = ''
     imports = {}
     types = []
-    feign_names = {client.interface_name for client in extract_clients(source, path)}
+    feign_declarations = {client.interface_name: client
+                          for client in extract_clients(source, path)}
     modifiers = set()
     i = 0
     while i < len(tokens):
@@ -553,7 +660,12 @@ def _extract(source: str, path: str) -> list[JavaType]:
             if text == 'package':
                 package = name
             elif not name.startswith('static') and '*' not in name:
-                imports[name.rsplit('.', 1)[-1]] = name
+                simple_name = name.rsplit('.', 1)[-1]
+                previous = imports.get(simple_name)
+                # Conflicting explicit imports do not establish an exact type.
+                # Keep ambiguity sticky rather than choosing the last import.
+                imports[simple_name] = (name if previous in (None, name) else
+                                        f'<ambiguous import {simple_name}>')
             i = end + 1
         elif text == '@':
             _, _, i = _annotation(tokens, i)
@@ -565,9 +677,38 @@ def _extract(source: str, path: str) -> list[JavaType]:
             if end is None:
                 i += 1
                 continue
-            fields, methods = _members(tokens, opening, end, path, package, imports)
             name = tokens[i + 1].text
+            qualified_name = package + '.' + name if package else name
             header = tokens[i + 2:opening]
+            unit_imports = dict(imports)
+            unit_imports.update({local: package + '.' + local if package else local
+                                 for local in local_types})
+            scoped_imports = _scoped_type_imports(
+                tokens, opening, end, header, qualified_name, unit_imports)
+            fields, methods = _members(tokens, opening, end, path, package, scoped_imports)
+            extends = []
+            header_depth = 0
+            for position, token in enumerate(header):
+                if token.text == '<':
+                    header_depth += 1
+                elif token.text == '>':
+                    header_depth -= 1
+                if token.text == 'extends' and header_depth == 0:
+                    parents = header[position + 1:]
+                    for stop, parent_token in enumerate(parents):
+                        if parent_token.text in ('implements', 'permits'):
+                            parents = parents[:stop]
+                            break
+                    for group in _groups(parents):
+                        # Keep the raw parent type, not its entity/ID arguments.
+                        parent = _clean(group)
+                        raw = parent[:next((j for j, t in enumerate(parent)
+                                            if t.text == '<'), len(parent))]
+                        if raw and all(_IDENTIFIER.fullmatch(t.text) or t.text == '.'
+                                       for t in raw):
+                            extends.append(_resolve(''.join(t.text for t in raw),
+                                                    package, scoped_imports))
+                    break
             implements = []
             for position, token in enumerate(header):
                 if token.text == 'implements':
@@ -575,15 +716,26 @@ def _extract(source: str, path: str) -> list[JavaType]:
                         # Parameterized implements declarations are not supported.
                         if all(_IDENTIFIER.fullmatch(t.text) or t.text == '.' for t in group):
                             implements.append(_resolve(''.join(t.text for t in group),
-                                                       package, imports))
+                                                       package, scoped_imports))
                     break
-            types.append(JavaType(package + '.' + name if package else name,
+            types.append(JavaType(qualified_name,
                                   text, path, tokens[i].line, fields, methods,
                                   tuple(implements), 'abstract' in modifiers,
                                   bool(header and header[0].text == '<'),
-                                  text == 'interface' and name in feign_names))
+                                  text == 'interface' and name in feign_declarations,
+                                  tuple(extends),
+                                  feign_declarations[name].line
+                                  if text == 'interface' and name in feign_declarations
+                                  else None))
             modifiers.clear()
             i = end + 1
+        elif text == '{':
+            # Unindexed type bodies (e.g. enums and records) are not top-level
+            # source. In particular, their method-local classes must not become
+            # integration declarations just because we skip the enclosing type.
+            end = _balanced_end(tokens, i)
+            modifiers.clear()
+            i = end + 1 if end is not None else len(tokens)
         else:
             if text in _MODIFIERS:
                 modifiers.add(text)
@@ -593,7 +745,33 @@ def _extract(source: str, path: str) -> list[JavaType]:
     return types
 
 
+def index_source(source: str, source_path: str) -> SourceIndex:
+    """Inventory a compilation unit using the same rules as module indexing.
+
+    The supplied path is retained verbatim for declaration evidence. This seam
+    does not read files, resolve external sources, or inspect configuration.
+    """
+    tokens = tokenize(source)
+    package = ''
+    for i, token in enumerate(tokens):
+        if token.text == 'package':
+            end = i + 1
+            while end < len(tokens) and tokens[end].text != ';':
+                end += 1
+            package = ''.join(t.text for t in tokens[i + 1:end])
+            break
+        if token.text in ('class', 'interface', 'enum', 'record'):
+            break
+    declared_names = tuple(sorted(
+        package + '.' + name if package else name
+        for name in _compilation_unit_types(tokens)))
+    return SourceIndex(tuple(_extract(source, source_path)), declared_names)
+
+
 def index_module(module: Module) -> SourceIndex:
     """Index Java sources without executing tools or changing module contents."""
-    return SourceIndex(tuple(t for path, source in read_java_sources(module)
-                             for t in _extract(source, path)))
+    units = tuple(index_source(source, path)
+                  for path, source in read_java_sources(module))
+    return SourceIndex(tuple(t for unit in units for t in unit.types),
+                       tuple(sorted({name for unit in units
+                                     for name in unit.declared_type_names})))
