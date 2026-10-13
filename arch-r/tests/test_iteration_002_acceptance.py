@@ -227,6 +227,9 @@ public interface {name} {{
         for name, line in (('Order', 4), ('Port', 3)):
             self.assertNotIn(f'src/main/java/shop/{name}.java:{line}', report)
         self.assertNotIn('no implementation', report.lower())
+        for unrelated in ('shop.Order', 'shop.Port', 'port.lookup',
+                          'missing-implementation', 'unsupported-receiver'):
+            self.assertNotIn(unrelated, report)
         self.assertIn('GET /items', finding)
 
         detailed, detailed_diagram = self.stable(details=True)
@@ -235,9 +238,19 @@ public interface {name} {{
         self.citation(detailed, 'shop', 'Order', 4)
         # Coverage requires the invocation location and a readable reason,
         # not a citation for every supporting type declaration.
-        self.assertIn('shop.Port', detailed)
-        self.assertIn('port.lookup', detailed)
-        self.assertEqual(finding, self.finding(detailed, 'products'))
+        entries = [row for row in detailed.splitlines()
+                   if 'src/main/java/shop/Order.java:4' in row]
+        self.assertEqual(len(entries), 1, detailed)
+        self.assertIn('shop.Port', entries[0])
+        self.assertIn('port.lookup', entries[0])
+        self.assertRegex(entries[0].lower(), r'no.*implementation.*within')
+        # The unrelated gap is module-wide, never a finding or adapter concern.
+        detailed_finding = self.finding(detailed, 'products')
+        for unrelated in ('shop.Order', 'shop.Port', 'port.lookup',
+                          'src/main/java/shop/Order.java:4'):
+            self.assertNotIn(unrelated, detailed_finding)
+        self.assertEqual(len(re.findall(r'^## Finding ', detailed, re.M)), 1)
+        self.assertEqual(finding, detailed_finding)
         self.assertEqual(diagram.text, detailed_diagram.text)
         # Returning to default removes optional evidence from the same report.
         restored, _ = self.analyze()
