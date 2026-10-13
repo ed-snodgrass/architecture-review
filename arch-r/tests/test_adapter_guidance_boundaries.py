@@ -6,8 +6,8 @@ these cover uncertainty and multiple arrangements within one finding.
 """
 import unittest
 
-import test_adapter_guidance as guidance_fixtures
-import test_usage_report as fixtures
+from tests import test_adapter_guidance as guidance_fixtures
+from tests import test_usage_report as fixtures
 
 
 class AdapterGuidanceBoundaryTests(unittest.TestCase):

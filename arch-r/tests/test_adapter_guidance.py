@@ -8,7 +8,7 @@ import html
 import re
 import unittest
 
-import test_usage_report as fixtures
+from tests import test_usage_report as fixtures
 
 
 class AdapterGuidanceTests(unittest.TestCase):
