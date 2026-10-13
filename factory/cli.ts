@@ -82,6 +82,7 @@ const lineFile = resolve(lineDirectory, `${lineName}.dot`);
 const line = readFileSync(lineFile, 'utf8');
 const edges: Edge[] = [...line.matchAll(/\b([A-Za-z][\w-]*)\s*->\s*([A-Za-z][\w-]*)(?:\s*\[\s*label\s*=\s*"([^"]+)"\s*\])?/g)]
   .map(m => ({ from: m[1], to: m[2], label: m[3] }));
+const hasTestAuthor = edges.some(edge => edge.from === 'test_author' || edge.to === 'test_author');
 function storedConfig(name: string): Config | undefined {
   const file = resolve(lineDirectory, '.machines', name, 'machine.json');
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Config : undefined;
@@ -197,7 +198,10 @@ function prompt(name: string): string {
   if (name === 'doer') {
     const tests = testFiles();
     const revisionRoute = edges.some(e => e.from === 'doer' && e.to === 'test_author' && e.label === 'tests_need_revision');
-    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done. Do not modify test files.${revisionRoute ? '\nIf the tests are missing or insufficient, leave them unchanged and return "tests_need_revision": true with the reason in "findings"; do not implement around a faulty test.' : ''}${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
+    const testPolicy = hasTestAuthor
+      ? ` Do not modify test files.${revisionRoute ? '\nIf the tests are missing or insufficient, leave them unchanged and return "tests_need_revision": true with the reason in "findings"; do not implement around a faulty test.' : ''}`
+      : '';
+    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done.${testPolicy}${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
   }
   if (name === 'test_author') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nCreate objective tests for the first unfinished task when tests are applicable. If no tests are applicable, say so in your result. Do not implement the task.${findings === undefined ? '' : `\nThe previous machine reported these findings about the tests:\n${JSON.stringify(findings)}\nCorrect the tests and address each finding.`}\n${answer}`;
   if (name === 'validator') {
@@ -275,9 +279,9 @@ async function orchestrate(): Promise<void> {
   let catalyst = 'Seed';
   while (machine !== 'finish') {
     if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
-    const testsBefore = machine === 'doer' ? testSnapshot() : undefined;
+    const testsBefore = machine === 'doer' && hasTestAuthor ? testSnapshot() : undefined;
     const outcome = execute(machine, catalyst);
-    if (machine === 'doer' && testsChanged(testsBefore!)) fail('The doer changed tests');
+    if (testsBefore && testsChanged(testsBefore)) fail('The doer changed tests');
     const outgoing = edges.filter(edge => edge.from === machine);
     let next: string;
     if (outgoing.length > 1 && outgoing.every(edge => !edge.label)) {
