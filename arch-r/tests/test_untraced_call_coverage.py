@@ -163,6 +163,74 @@ class Plain {
         self.assertNotEqual(entries[0], entries[1], 'Same-line sites need distinguishable locations/identity')
         self.assertTrue(all('getId' in entry for entry in entries))
 
+    def test_same_line_sites_deduplicate_reasons_without_merging_calls(self):
+        self.put('Plain', '''package sample;
+class Plain {
+    void work(Request request) { request.alpha(); request.beta(); request.alpha(); }
+}
+''')
+        usage = trace_usage(load_module(str(self.module)))
+        self.assertEqual(len(usage.diagnostics), 3)
+        self.assertEqual(len({d.invocation for d in usage.diagnostics}), 3)
+        # Repeat traversal results and attach another reason to each real site.
+        # Neither repetition nor different reasons may change the site count.
+        extra_reason = 'The receiver type cannot be resolved within supported analysis.'
+        augmented = replace(usage, diagnostics=tuple(
+            item for diagnostic in reversed(usage.diagnostics)
+            for item in (diagnostic, replace(diagnostic, message=extra_reason), diagnostic)
+        ))
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(self.work)
+            with patch('archr.cli.trace_usage', return_value=augmented), \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(main(['analyze', str(self.module)]), 0)
+                default = self.output.read_text(encoding='utf-8')
+                self.assert_coverage(default, 3)
+                for hidden in ('Plain.java:3', 'request.alpha', 'request.beta',
+                               'unsupported-receiver', extra_reason):
+                    self.assertNotIn(hidden, default)
+                self.assertEqual(main(['analyze', str(self.module), FLAG]), 0)
+                detailed = self.output.read_text(encoding='utf-8')
+        finally:
+            os.chdir(old_cwd)
+        self.assert_coverage(detailed, 3)
+        entries = [line for line in detailed.splitlines()
+                   if 'src/main/java/sample/Plain.java:3' in line]
+        self.assertEqual(len(entries), 3, detailed)
+        self.assertEqual(len(set(entries)), 3, detailed)
+        self.assertIn('alpha', entries[0])
+        self.assertIn('beta', entries[1])
+        self.assertIn('alpha', entries[2])
+        for entry in entries:
+            self.assertEqual(entry.count(extra_reason), 1, entry)
+            self.assertEqual(entry.count(usage.diagnostics[0].message), 1, entry)
+
+    def test_flag_positions_with_relative_module_path_containing_spaces(self):
+        self.module = self.module.rename(self.work / 'orders with spaces')
+        self.output = self.work / load_module(str(self.module)).report_filename
+        self.put('Plain', '''package sample;
+class Plain {
+    void work(Request request) { request.getId(); }
+}
+''')
+        reports = []
+        snapshot = self.snapshot()
+        for before in (False, True):
+            with self.subTest(before=before):
+                result = self.run_cli(details=True, before=before,
+                                      path=Path(self.module.name))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, '')
+                report = self.output.read_text(encoding='utf-8')
+                self.assert_coverage(report, 1)
+                self.assertIn('src/main/java/sample/Plain.java:3', report)
+                self.assertIn('getId', report)
+                reports.append(report)
+        self.assertEqual(reports[0], reports[1])
+        self.assertEqual(snapshot, self.snapshot())
+        self.assertEqual(list(self.work.glob('arch-r-report-*.md')), [self.output])
+
     def test_flag_is_accepted_before_and_after_path(self):
         for before in (False, True):
             with self.subTest(before=before):
