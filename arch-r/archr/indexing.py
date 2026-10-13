@@ -23,6 +23,8 @@ class Invocation:
     # Unqualified receivers can be shadowed by parameters or local variables.
     field_receiver: bool = True
     explicit_type_arguments: bool = False
+    # Absolute lexer offset distinguishes even identical calls on one line.
+    source_offset: int | None = None
 
 
 @dataclass(frozen=True)
@@ -361,7 +363,8 @@ def _invocations(tokens: list[Token], path: str,
             if end is not None:
                 calls.append(Invocation('<chained expression>', tokens[i + 1].text,
                                         _argument_count(tokens[i + 3:end]), path,
-                                        tokens[i + 1].line, False))
+                                        tokens[i + 1].line, False,
+                                        source_offset=tokens[i + 1].start))
                 i += 3
                 continue
         start = i
@@ -390,7 +393,7 @@ def _invocations(tokens: list[Token], path: str,
                                             path, tokens[start].line,
                                             receiver.startswith('this.') or not any(
                                                 receiver in names for names, _ in scopes),
-                                            explicit_types))
+                                            explicit_types, tokens[start].start))
                     # Continue inside arguments so nested field calls retain evidence.
                     i = method_index + 2
                     continue

@@ -1,5 +1,6 @@
-"""Black-box contracts for iteration 002's finding-level usage/evidence task.
+"""Finding-level usage/evidence contracts, updated for iteration 003 coverage.
 
+Unrelated diagnostics are now checked in optional details, not default output.
 Only disposable Java source fixtures are analyzed; no Java is compiled or run.
 Assertions cover report semantics and citations, not a proposed internal API,
 exact prose, adapter advice, or the later diagram/limitations tasks.
@@ -72,10 +73,11 @@ public interface Client {{
 }}
 ''')
 
-    def report(self):
+    def report(self, details=False):
         before = {p.relative_to(self.module): p.read_bytes()
                   for p in self.module.rglob('*') if p.is_file()}
-        result = subprocess.run([str(ENTRY_POINT), 'analyze', str(self.module)],
+        result = subprocess.run([str(ENTRY_POINT), 'analyze', str(self.module)]
+                                + (['--show-analysis-limitations'] if details else []),
                                 cwd=self.caller, capture_output=True, text=True,
                                 timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -92,10 +94,10 @@ public interface Client {{
                         flags=re.M)[0]
 
     def module_diagnostics(self, report):
-        match = re.search(r'^## Module-wide unresolved connections\s*$', report, re.M)
-        self.assertIsNotNone(match, report)
-        return re.split(r'^## ', report[match.end():], maxsplit=1,
-                        flags=re.M)[0]
+        # Optional coverage is module-wide; its heading is not prescribed.
+        sections = re.split(r'(?=^## )', report, flags=re.M)
+        return '\n'.join(section for section in sections
+                         if not section.startswith('## Finding '))
 
     def extra_clients(self):
         for name, system in (('BillingClient', 'billing'), ('StockClient', 'stock')):
@@ -264,7 +266,7 @@ class Order {
     void place(String id) { port.lookup(id); }
 }
 ''')
-        report = self.report()
+        report = self.report(details=True)
         finding = self.usage_and_evidence(report)
         self.assertRegex(finding.lower(), r'no.*caller.*found|no.*supported.*call')
         self.assertRegex(finding.lower(), r'(within|supported|boundary|analy)')
@@ -274,8 +276,8 @@ class Order {
         self.assertRegex(text.lower(), r'no.*implementation.*(found|visible)|'
                          r'implementation.*not.*found')
         self.assertRegex(text.lower(), r'(within|boundary|analyzed module|local)')
-        self.citations(text, 'Order', 3, 4)
-        self.citations(text, 'Port', 3)
+        self.citations(text, 'Order', 4)
+        self.assertIn('lookup', text)
         self.assertNotRegex(html.unescape(text), r'Order\s*(?:→|->|-->)')
 
     def test_three_clients_share_unrelated_diagnostics_once_with_stable_output(self):
@@ -308,31 +310,31 @@ class Unrelated {
     }
 }
 ''')
-        first = self.report()
+        default = self.report()
+        for line in (7, 8, 9):
+            self.assertNotIn(f'src/main/java/sample/Unrelated.java:{line}', default)
+        first = self.report(details=True)
+        for system in ('products', 'billing', 'stock'):
+            self.assertEqual(self.finding(default, system), self.finding(first, system))
         context = self.module_diagnostics(first)
-        self.assertEqual(first.count('## Module-wide unresolved connections'), 1)
         for line in (7, 8, 9):
             citation = f'src/main/java/sample/Unrelated.java:{line}'
             self.assertEqual(first.count(citation), 1, first)
             self.assertIn(citation, context)
-        self.citations(context, 'Unrelated', 3, 4)
-        self.citations(context, 'MissingPort', 3)
-        self.citations(context, 'AmbiguousPort', 3)
+        self.assertIn('lookup', context)
+        self.assertIn('fetch', context)
         self.assertRegex(context.lower(), r'no.*implementation.*(found|visible)|'
                          r'implementation.*not.*found')
         self.assertRegex(context.lower(), r'(within|boundary|analyzed module|local)')
         self.assertRegex(context.lower(), r'ambigu|multiple implementation')
         self.assertIn('OutsideModule', context)
-        for name in ('FirstLocal', 'SecondLocal'):
-            self.assertIn(name, context)
-            self.citations(context, name, 2)
         for system in ('products', 'billing', 'stock'):
             finding = self.finding(first, system)
             self.assertRegex(finding.lower(), r'no.*caller.*found|no.*supported.*call')
             for name in ('Unrelated', 'MissingPort', 'AmbiguousPort',
                          'FirstLocal', 'SecondLocal', 'OutsideModule'):
                 self.assertNotIn(name, finding)
-        self.assertEqual(first.encode('utf-8'), self.report().encode('utf-8'))
+        self.assertEqual(first.encode('utf-8'), self.report(details=True).encode('utf-8'))
 
     def test_three_clients_keep_relevant_interface_and_overload_uncertainty_scoped(self):
         self.extra_clients()
@@ -359,7 +361,11 @@ class HttpGateway implements Port {
     void health() { outside.fetch(); }
 }
 ''')
-        first = self.report()
+        default = self.report()
+        self.assertNotIn('src/main/java/sample/HttpGateway.java:6', default)
+        first = self.report(details=True)
+        for system in ('products', 'billing', 'stock'):
+            self.assertEqual(self.finding(default, system), self.finding(first, system))
         product = self.finding(first, 'products')
         billing = self.finding(first, 'billing')
         stock = self.finding(first, 'stock')
@@ -374,10 +380,10 @@ class HttpGateway implements Port {
         self.citations(billing, 'BillingOrder', 4)
         self.citations(billing, 'BillingGateway', 4, 5)
         self.assertNotRegex(html.unescape(billing), r'BillingOrder\s*(?:→|->|-->)')
-        for section in (billing, stock, context):
+        for section in (billing, stock):
             self.assertNotIn('sample/Order.java:4', section)
             self.assertNotIn('OtherGateway', section)
-        for section in (product, stock, context):
+        for section in (product, stock):
             self.assertNotIn('BillingOrder', section)
             self.assertNotIn('BillingGateway', section)
         citation = 'src/main/java/sample/HttpGateway.java:6'
@@ -387,7 +393,7 @@ class HttpGateway implements Port {
         for section in (product, billing, stock):
             self.assertNotIn(citation, section)
             self.assertNotIn('OutsideModule', section)
-        self.assertEqual(first.encode('utf-8'), self.report().encode('utf-8'))
+        self.assertEqual(first.encode('utf-8'), self.report(details=True).encode('utf-8'))
 
     def test_shared_overload_uncertainty_stays_in_each_affected_finding(self):
         self.extra_clients()
@@ -413,7 +419,11 @@ class Order {
     void place(String id) { gateway.lookup(id); }
 }
 ''')
-        first = self.report()
+        default = self.report()
+        self.assertNotIn('src/main/java/sample/SharedGateway.java:14', default)
+        first = self.report(details=True)
+        for system in ('products', 'billing', 'stock'):
+            self.assertEqual(self.finding(default, system), self.finding(first, system))
         context = self.module_diagnostics(first)
         for system in ('products', 'billing'):
             finding = self.finding(first, system)
@@ -423,15 +433,15 @@ class Order {
             self.assertNotRegex(html.unescape(finding), r'Order\s*(?:→|->|-->)')
             self.assertNotIn('sample/SharedGateway.java:14', finding)
         stock = self.finding(first, 'stock')
-        for section in (stock, context):
-            self.assertNotIn('sample/Order.java:4', section)
-            self.assertNotIn('sample/SharedGateway.java:5', section)
-            self.assertNotIn('sample/SharedGateway.java:9', section)
-        # A diagnostic may belong to both affected findings, but not module context.
-        self.assertEqual(first.count('src/main/java/sample/Order.java:4'), 2)
+        self.assertNotIn('sample/Order.java:4', stock)
+        self.assertNotIn('sample/SharedGateway.java:5', stock)
+        self.assertNotIn('sample/SharedGateway.java:9', stock)
+        # Relevant ambiguity remains beside both affected findings; optional
+        # coverage also counts and lists that recorded invocation once.
+        self.assertEqual(context.count('src/main/java/sample/Order.java:4'), 1)
         self.assertEqual(first.count('src/main/java/sample/SharedGateway.java:14'), 1)
         self.citations(context, 'SharedGateway', 14)
-        self.assertEqual(first.encode('utf-8'), self.report().encode('utf-8'))
+        self.assertEqual(first.encode('utf-8'), self.report(details=True).encode('utf-8'))
 
     def test_shared_interface_ambiguity_keeps_each_clients_observed_methods_separate(self):
         self.extra_clients()

@@ -90,12 +90,12 @@ def _relevant_diagnostics(client: FeignClient, usage: UsageTraversal):
             if step.interface_connection:
                 methods.add(step.interface_connection.implementation_method)
     diagnostics = tuple(item for item in usage.diagnostics
-                        if item.caller_method in methods
+                        if (item.receiver_field is not None
+                            and item.receiver_field.type_name == client.qualified_name)
                         or any(method in methods or method.source_path == client.source_path
                                for method in item.candidates))
     interfaces = tuple(item for item in usage.interface_diagnostics
-                       if item.link.caller_method in methods
-                       or item.link.target_method in methods
+                       if item.link.target_method in methods
                        or any(method in methods
                               and method.name == item.link.target_method.name
                               and method.parameter_count == item.link.target_method.parameter_count
@@ -109,7 +109,8 @@ def _diagnostic_lines(diagnostics, interface_diagnostics) -> list[str]:
         invocation = diagnostic.invocation
         lines.append(f'- Unresolved connection ({_markdown(diagnostic.code)}) in '
                      f'{_markdown(diagnostic.caller_type + "." + diagnostic.caller_method.name)} '
-                     f'at {_evidence(invocation.source_path, invocation.line)}: '
+                     f'at {_evidence(invocation.source_path, invocation.line)} '
+                     f'({_markdown(invocation.receiver + "." + invocation.method_name)}): '
                      f'{_markdown(diagnostic.message)}')
         for method in diagnostic.candidates:
             lines.append(f'  - Candidate method {_markdown(method.name)}: '
@@ -301,8 +302,53 @@ def _usage_diagram_lines(module: Module, clients: list[FeignClient],
     return lines
 
 
+def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
+    """Count recorded invocation gaps, independently of finding relevance.
+
+    Resolver and failed interface routes have invocation evidence. Traversal
+    cutoffs, destination uncertainty and followed possible links do not.
+    """
+    sites = {}
+    for diagnostic in (*usage.diagnostics, *usage.interface_diagnostics):
+        invocation = (diagnostic.invocation if hasattr(diagnostic, 'invocation')
+                      else diagnostic.link.invocation)
+        # Indexed sites use offsets; legacy manually supplied invocations retain
+        # a stable fallback without requiring any new source analysis.
+        location = (('offset', invocation.source_offset)
+                    if invocation.source_offset is not None else
+                    ('legacy', invocation.line, invocation.receiver,
+                     invocation.method_name, invocation.argument_count))
+        key = invocation.source_path, location
+        if key not in sites:
+            sites[key] = (invocation, set())
+        sites[key][1].add(diagnostic.message)
+    lines = ['', '## Analysis coverage', '']
+    count = len(sites)
+    if not count:
+        lines.append('No untraced call sites recorded within supported analysis.')
+        return lines
+    noun, verb = ('site', 'was') if count == 1 else ('sites', 'were')
+    lines.append(f'{count} call {noun} {verb} not traced; external effects cannot be ruled out. '
+                 'Use `--show-analysis-limitations` for details.')
+    if show_details:
+        lines.extend(['', '### Untraced call sites', ''])
+        ordered = sorted(sites.values(), key=lambda site: (
+            site[0].source_path, site[0].line,
+            site[0].source_offset if site[0].source_offset is not None else -1,
+            site[0].receiver, site[0].method_name, site[0].argument_count))
+        for invocation, reasons in ordered:
+            offset = (f' (source offset {invocation.source_offset})'
+                      if invocation.source_offset is not None else '')
+            call = f'{invocation.receiver}.{invocation.method_name}({invocation.argument_count} arguments)'
+            lines.append(f'- {_evidence(invocation.source_path, invocation.line)}{offset}: '
+                         f'{_markdown(call)} — '
+                         + ' '.join(_markdown(reason) for reason in sorted(reasons)))
+    return lines
+
+
 def render_report(module: Module, clients: Iterable[FeignClient],
-                  usage: UsageTraversal | None = None) -> str:
+                  usage: UsageTraversal | None = None, *,
+                  show_analysis_limitations: bool = False) -> str:
     """Render supplied source findings without writing or performing analysis."""
     ordered = sorted(clients, key=lambda c: (c.source_path, c.line, c.interface_name))
     name = _markdown(module.name)
@@ -343,16 +389,7 @@ def render_report(module: Module, clients: Iterable[FeignClient],
             lines.extend(_usage_lines(client, usage))
             lines.extend(_adapter_guidance_lines(client, usage))
     if usage is not None:
-        relevant = [_relevant_diagnostics(client, usage) for client in ordered]
-        diagnostics = tuple(item for item in usage.diagnostics
-                            if not any(item in group[0] for group in relevant))
-        interfaces = tuple(item for item in usage.interface_diagnostics
-                           if not any(item in group[1] for group in relevant))
-        if diagnostics or interfaces:
-            lines.extend(['', '## Module-wide unresolved connections', '',
-                          'These diagnostics are module context, not established routes '
-                          'to any reported Feign client.', ''])
-            lines.extend(_diagnostic_lines(diagnostics, interfaces))
+        lines.extend(_coverage_lines(usage, show_analysis_limitations))
     lines.extend(['', '## Architectural connections', '', '```mermaid'])
     if usage is not None:
         lines.extend(_usage_diagram_lines(module, ordered, usage))
@@ -393,8 +430,9 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   'receivers, same-class helpers, inherited methods, generic method and interface '
                   'resolution, method references, lambdas, and reflection are outside supported '
                   'traversal. '
-                  'Relevant unresolved or unsupported connections are reported with evidence '
-                  'when encountered; this is not a comprehensive inventory of unsupported syntax. '
+                  'Relevant unresolved or unsupported connections remain beside findings with '
+                  'evidence. Coverage summarizes recorded untraced invocations; optional details '
+                  'list those sites, not a comprehensive inventory of unsupported syntax. '
                   'Unsupported or unresolved connections are not proof of absence of callers.', '',
                   'Usage is source-only: runtime wiring and execution were not verified. Bean '
                   'selection, qualifiers, profiles, factories, proxies, and runtime dispatch '

@@ -35,12 +35,15 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     analyze = commands.add_parser("analyze", help="Analyze a Java/Spring Maven module")
     analyze.add_argument("spring_module_path", help="Relative or absolute module directory")
+    analyze.add_argument("--show-analysis-limitations", action="store_true",
+                         help="Include individual untraced call sites in the report")
     args = parser.parse_args(argv)
     try:
         module = load_module(args.spring_module_path)
         clients = discover_clients(module)
         usage = trace_usage(module, max_depth=DEFAULT_MAX_CALL_STEPS)
-        content = render_report(module, clients, usage)
+        content = render_report(module, clients, usage,
+                                show_analysis_limitations=args.show_analysis_limitations)
         write_report(module.report_filename, content)
     except AnalysisError as exc:
         print(f"arch-r: {exc}", file=sys.stderr)

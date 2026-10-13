@@ -29,6 +29,8 @@ class Diagnostic:
     code: str
     message: str
     candidates: tuple[Method, ...] = ()
+    # Only unshadowed field evidence may connect a gap to a finding.
+    receiver_field: Field | None = None
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,8 @@ def resolve_index(index: SourceIndex) -> Resolution:
 
                 def unresolved(code, message, candidates=()):
                     diagnostics.append(Diagnostic(caller.qualified_name, method,
-                                                  invocation, code, message, candidates))
+                                                  invocation, code, message, candidates,
+                                                  field if invocation.field_receiver else None))
 
                 if invocation.explicit_type_arguments:
                     unresolved('unsupported-syntax',

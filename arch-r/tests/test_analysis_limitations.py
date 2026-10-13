@@ -39,11 +39,12 @@ public interface Client {
 }
 ''')
 
-    def report_bytes(self):
+    def report_bytes(self, details=False):
         before = {p.relative_to(self.module): p.read_bytes()
                   for p in self.module.rglob('*') if p.is_file()}
         result = subprocess.run(
-            [str(ENTRY_POINT), 'analyze', str(self.module)], cwd=self.caller,
+            [str(ENTRY_POINT), 'analyze', str(self.module)]
+            + (['--show-analysis-limitations'] if details else []), cwd=self.caller,
             capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, '')
@@ -125,9 +126,13 @@ class LocalOnly {
 ''')
         report = self.report_bytes().decode('utf-8')
         self.assertRegex(report.lower(), r'no supported caller.*found')
-        self.assertIn('src/main/java/sample/LocalOnly.java:5', report)
-        self.assertRegex(report.lower(), r'(?:unsupported|unresolved)[^\n]*(?:local|receiver)|'
-                         r'(?:local|receiver)[^\n]*(?:unsupported|unresolved)')
+        self.assertRegex(report.lower(), r'1 call site(?:s)? (?:was|were) not traced')
+        # Parameter/local type inference is outside supported analysis; proximity
+        # or a source declaration alone does not establish a Feign receiver link.
+        details = self.report_bytes(details=True).decode('utf-8')
+        self.assertIn('src/main/java/sample/LocalOnly.java:5', details)
+        self.assertRegex(details.lower(), r'(?:local|receiver)[^\n]*(?:not|unsupported)|'
+                         r'(?:not|unsupported)[^\n]*(?:local|receiver)')
 
     def test_multiple_calls_and_unresolved_evidence_are_byte_stable(self):
         self.client()
@@ -153,7 +158,8 @@ class Unresolved {
         for name in ('AOrder', 'ZOrder'):
             for line in (5, 6):
                 self.assertIn(f'src/main/java/sample/{name}.java:{line}', report)
-        self.assertIn('src/main/java/sample/Unresolved.java:4', report)
+        self.assertNotIn('src/main/java/sample/Unresolved.java:4', report)
+        self.assertRegex(report.lower(), r'1 call site(?:s)? (?:was|were) not traced')
         self.assertEqual(first, self.report_bytes())
         self.assertEqual(first, self.report_bytes())
         self.assertEqual(list(self.caller.glob('arch-r-report-*.md')),

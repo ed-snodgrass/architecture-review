@@ -49,7 +49,9 @@ def _step_key(step: UsageStep):
     return (link.caller_type, link.caller_method.source_path,
             link.caller_method.line, link.caller_method.name,
             link.caller_method.parameter_count, link.invocation.source_path,
-            link.invocation.line, link.invocation.receiver,
+            link.invocation.line,
+            link.invocation.source_offset if link.invocation.source_offset is not None else -1,
+            link.invocation.receiver,
             link.target_type, link.target_method.source_path,
             link.target_method.line, link.target_method.name,
             link.target_method.parameter_count)

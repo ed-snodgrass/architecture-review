@@ -44,10 +44,13 @@ public interface {name} {{
 }}''', 'import org.springframework.cloud.openfeign.FeignClient;\n'
              'import org.springframework.web.bind.annotation.GetMapping;\n')
 
-    def analyze(self):
+    def analyze(self, details=False):
         before = {str(p.relative_to(self.module)): p.read_bytes()
                   for p in self.module.rglob('*') if p.is_file()}
-        result = subprocess.run([str(ENTRY_POINT), 'analyze', str(self.module)],
+        args = [str(ENTRY_POINT), 'analyze', str(self.module)]
+        if details:
+            args.append('--show-analysis-limitations')
+        result = subprocess.run(args,
                                 cwd=self.work, capture_output=True, text=True,
                                 timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -59,10 +62,10 @@ public interface {name} {{
         report = self.output.read_text(encoding='utf-8')
         return report, Diagram(self, report)
 
-    def stable(self):
-        report, diagram = self.analyze()
+    def stable(self, details=False):
+        report, diagram = self.analyze(details=details)
         first = self.output.read_bytes()
-        self.analyze()
+        self.analyze(details=details)
         self.assertEqual(first, self.output.read_bytes())
         return report, diagram
 
@@ -216,10 +219,29 @@ public interface {name} {{
         self.assertNotIn('Holder', diagram.text)
         self.assertNotIn('Order', diagram.text)
         self.assertNotIn('Observed source chain', finding)
-        self.assertRegex(report.lower(), r'no.*implementation.*within')
-        self.citation(report, 'shop', 'Order', 4)
-        self.citation(report, 'shop', 'Port', 3)
+        # With no implementation there is no receiver/type evidence linking
+        # this Port call to the Feign client. Iteration 003 keeps this gap in
+        # module-wide coverage, not the default architectural finding.
+        self.assertRegex(report, r'1 call site was not traced')
+        self.assertIn('--show-analysis-limitations', report)
+        for name, line in (('Order', 4), ('Port', 3)):
+            self.assertNotIn(f'src/main/java/shop/{name}.java:{line}', report)
+        self.assertNotIn('no implementation', report.lower())
         self.assertIn('GET /items', finding)
+
+        detailed, detailed_diagram = self.stable(details=True)
+        self.assertRegex(detailed, r'1 call site was not traced')
+        self.assertRegex(detailed.lower(), r'no.*implementation.*within')
+        self.citation(detailed, 'shop', 'Order', 4)
+        # Coverage requires the invocation location and a readable reason,
+        # not a citation for every supporting type declaration.
+        self.assertIn('shop.Port', detailed)
+        self.assertIn('port.lookup', detailed)
+        self.assertEqual(finding, self.finding(detailed, 'products'))
+        self.assertEqual(diagram.text, detailed_diagram.text)
+        # Returning to default removes optional evidence from the same report.
+        restored, _ = self.analyze()
+        self.assertEqual(report, restored)
 
     def test_cycles_multiple_sites_and_overloads_preserve_evidence_not_false_routes(self):
         self.client()
