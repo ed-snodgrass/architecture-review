@@ -1,59 +1,46 @@
-# Homework 4 — Runs and targets
+# Homework 5 — Fan out
 
-Read `FACTORY.md`, then the feature files in `features/`. Together they are
-the whole spec of the factory at this point, not just the new parts.
+Read `FACTORY.md`, then the feature files in `features/`.
 
-Your factory already builds into the target folder you choose. Until now
-every invocation supplied a seed and target and used the same assembly line. Each
-target kept one plan: an implicit run for that generation. This homework
-introduces named runs that remember what they build and how, while the
-factory source stays in `factory/`.
+Until now an assembly line has been a single path: one machine, then the
+next. This time the line itself learns a new move. A machine with several
+edges out and no labels on them **fans out**: every machine those edges
+lead to runs, at the same time. The branches **fan in** where they meet:
+each branch's one edge leads to the same machine, which runs once all of
+them have finished, and is given what each of them answered and nothing
+else. The factory refuses a line whose branches do not meet, and a
+branch that fails, by crashing or by answering with no result, stops the
+run.
 
-- **The assembly lines move into the target.** A target holds its
-  product and, in `.assembly-lines/`, the lines that build it, with the
-  machines they name in `.assembly-lines/.machines/`, a folder each. A
-  machine's name is unique in its target: every line there that names
-  the doer runs the same doer. Move your line and machines from homework
-  3 into `tetris/tetris-003/.assembly-lines/` (or whichever target you
-  choose).
-- **Each execution is a named run.** You name the run, and the first time
-  you start it you give it a target, one of that target's lines, and a seed.
-  The run remembers all three; after that, its name is enough. It keeps
-  its plan with the factory, in `factory/runs/<name>/plan.md`. To resume your
-  existing game, move its `.factory/plan.md` there; a run
-  now owns that plan. Or start with a fresh target. Unlike the target's
-  plan in earlier homeworks, run state must stay out of Git: add
-  `/factory/runs/` to your repository-root `.gitignore`.
+That is all the factory learns. What you fan out to is up to the line.
+The course's example is **the three big brains**: the doer's work fans
+out to three reviewers, the same job on three different providers'
+models, and a synthesiser reads their reports and decides.
 
-Once the route is data, a target can hold more than one line. Write a second
-one — the same line without the validator will do — and have each run say
-which line it runs.
-
-Starting or resuming a run is an **invocation** of that same run. Its name,
-settings and plan persist across invocations.
-
-## The commands you'll end up with
-
-The exact shape is your choice. Run from the repository root, with
-`bin/factory` linked to your entry point:
-
-```sh
-# a new run: its target, its line and its seed
-$ bin/factory --run tetris --target tetris/tetris-003 --line careful --seed tetris/spec.md
-
-# after that, its name is enough
-$ bin/factory --run tetris
-
-# a second target: write snake/spec.md describing Snake first
-# give it a line and machines of its own
-$ mkdir -p snake/snake1
-$ cp -r tetris/tetris-003/.assembly-lines snake/snake1/
-$ bin/factory --run snake --target snake/snake1 --line quick --seed snake/spec.md
+```dot
+doer -> reviewer_1
+doer -> reviewer_2
+doer -> reviewer_3
+reviewer_1 -> synthesiser
+reviewer_2 -> synthesiser
+reviewer_3 -> synthesiser
+synthesiser -> doer     [label="not satisfied"]
+synthesiser -> planner  [label="satisfied"]
 ```
 
-The factory should build whatever the new seed describes, without disturbing
-the first run.
+The reviewers being alike is the three big brains' choice, not something
+fanning out needs: each branch is run as that machine would be run
+anywhere, with its own prompt.
 
-The checks still run against a copy of your factory, because runs live with
-the factory. The copy still builds in separate targets, now each holding its
-own lines and machines.
+The three reviewers assess and report; they do not
+decide. The synthesiser decides, and the line routes on its result, as it
+did on the validator's.
+
+## Checks that see machines at work
+
+Some examples need a machine caught part-way through its work: three
+reviewers working at the same time, say.
+
+When using test doubles, it would be good to set their state manually
+in the test, instead of running something that has a sleep or other runtime.
+It saves you from potential race conditions.

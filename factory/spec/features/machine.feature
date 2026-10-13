@@ -82,8 +82,10 @@ Feature: Machines
 
     The factory tells each machine what its result must say: the field
     each edge leaving it names. The validator is also asked why it is
-    not satisfied, in "findings", which go back to the doer. Nothing but
-    that question makes a machine answer with a result.
+    not satisfied, in "findings", which go back to the doer. A machine
+    whose edges name no field, such as a branch of a fan out, is still
+    asked for a result. Nothing but that question makes a machine answer
+    with a result.
 
     Example: What the planner is asked for
       Given a plan with three tasks, none of them done

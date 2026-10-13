@@ -21,13 +21,17 @@ with the machines they name each in a folder of its own in
 line in it that names the doer runs the same doer. A line never names a
 target.
 
+A line can **fan out**: a machine with several unlabelled edges out runs
+every machine they lead to at the same time, and those branches meet at
+one machine, which runs once they have all finished and is given their
+results and nothing else. A branch that fails stops the run. The
+course's example is the **three big brains**: three reviewers on
+different providers' models report on each attempt, and a synthesiser
+reads their reports and decides.
+
 A **run** is a named execution of one of the target's assembly lines on a
 seed, saying what to build, against a target, the codebase to build it in. The
-factory source is separate from the generated product. Targets
-are plain folders: commits in their containing repository include only
-the selected target's work and preserve unrelated staged changes. Git is
-initialized only when no repository contains the target. The run keeps
-its plan in `runs/<name>/plan.md` in the factory's folder, never in the target.
+factory source is separate from the generated product. The run
+keeps its plan in `runs/<name>/plan.md` in the factory's folder, never in the target.
 
-New since iteration 3: runs, and targets that hold their own lines and
-machines. Plans move from each target into the factory's `runs/` folder.
+New since iteration 4: `fan-out.feature`; lines can fan out and back in.
