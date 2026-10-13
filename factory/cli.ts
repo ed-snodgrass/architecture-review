@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
@@ -98,6 +98,24 @@ function reachesFinish(node: string, seen = new Set<string>()): boolean {
 for (const name of [...new Set(edges.map(e => e.from))].reverse()) {
   if (!reachesFinish(name)) fail(`finish cannot be reached from ${name}`);
 }
+for (const name of new Set(edges.map(edge => edge.from))) {
+  const outgoing = edges.filter(edge => edge.from === name);
+  if (outgoing.length < 2 || outgoing.some(edge => edge.label)) continue;
+
+  const branchEdges = outgoing.map(edge =>
+    edges.filter(candidate => candidate.from === edge.to),
+  );
+  const meetingPoints = branchEdges.map(branch => branch[0]?.to);
+
+  if (
+    branchEdges.some(
+      branch => branch.length !== 1 || branch[0].label !== undefined,
+    )
+    || new Set(meetingPoints).size !== 1
+  ) {
+    fail(`The branches from ${name} do not meet`);
+  }
+}
 if (checking) { console.log('Assembly line accepted'); process.exit(0); }
 
 mkdirSync(runDirectory!, { recursive: true });
@@ -165,6 +183,7 @@ function route(name: string, result: Outcome): string {
   fail(`The result of ${name} did not select an edge`);
 }
 let findings: unknown;
+let fanInResults: Outcome[] | undefined;
 let completingTask = false;
 let attempts = 0;
 function prompt(name: string): string {
@@ -185,6 +204,11 @@ function prompt(name: string): string {
     const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
     return `Run the current task's tests first. Confirm they pass, then review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
   }
+  if (name.startsWith('reviewer_')) {
+    const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
+    return `Review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
+  }
+  if (fanInResults) return `Consider only these branch results and decide what happens next:\n${JSON.stringify(fanInResults)}\n${answer}`;
   return answer;
 }
 function execute(name: string, catalyst: string): Outcome {
@@ -201,6 +225,41 @@ function execute(name: string, catalyst: string): Outcome {
   if (!quiet) appendLog(`[${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}`);
   return outcome;
 }
+
+async function executeBranches(names: string[], catalyst: string): Promise<Outcome[]> {
+  const children: ReturnType<typeof spawn>[] = [];
+  const runs = names.map(name => new Promise<Outcome>((resolveRun, rejectRun) => {
+    const harness = machineConfig(name).harness;
+    const child = spawn(harness, [prompt(name)], {
+      cwd: target,
+      env: { ...process.env, FACTORY_RUN_NAME: runName! },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    children.push(child);
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', chunk => { stdout += chunk.toString(); });
+    child.stderr?.on('data', chunk => { stderr += chunk.toString(); });
+    child.on('error', error => rejectRun(`Could not run ${name}: machine=${name} harness=${JSON.stringify(harness)} error=${JSON.stringify(error.message)}`));
+    child.on('close', () => {
+      process.stdout.write(stdout);
+      if (stderr) process.stderr.write(stderr);
+      const outcome = parseResult(stdout);
+      if (!outcome) {
+        rejectRun(`Could not read ${name}'s result: machine=${name} harness=${JSON.stringify(harness)} stderr=${JSON.stringify(stderr)} stdout=${JSON.stringify(stdout)}`);
+        return;
+      }
+      if (!quiet) appendLog(`[${name}] Catalyst: ${catalyst}. ${JSON.stringify(outcome)}`);
+      resolveRun(outcome);
+    });
+  }));
+  try {
+    return await Promise.all(runs);
+  } catch (error) {
+    for (const child of children) child.kill();
+    fail(String(error));
+  }
+}
 function commitWork(causingMachine: string): void {
   const paths = ['.', ':(exclude).assembly-lines'];
   execFileSync('git', ['add', '--', ...paths], { cwd: target });
@@ -211,26 +270,39 @@ function commitWork(causingMachine: string): void {
     if (!quiet) appendLog(`[commit] machine=${causingMachine} hash=${hash} message=${JSON.stringify(message)}`);
   }
 }
-let machine = edges.find(e => e.from === 'start')?.to ?? fail('The assembly line has no start');
-let catalyst = 'Seed';
-while (machine !== 'finish') {
-  if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
-  const testsBefore = machine === 'doer' ? testSnapshot() : undefined;
-  const outcome = execute(machine, catalyst);
-  if (machine === 'doer' && testsChanged(testsBefore!)) fail('The doer changed tests');
-  const next = route(machine, outcome);
-  if (machine === 'validator') findings = outcome.findings;
-  if (machine === 'doer' && next === 'test_author') findings = outcome.findings;
-  if ((machine === 'doer' || machine === 'validator') && next === 'planner') {
-    commitWork(machine); completingTask = true; findings = undefined; attempts = 0;
-  } else if (machine === 'test_author' && next === 'doer') {
-    attempts = 0;
-    completingTask = false;
-  } else if (machine === 'planner') completingTask = false;
-  if (machine === 'test_author' && next === 'doer') findings = undefined;
-  catalyst = machine;
-  if (!quiet && machine === 'doer' && attempts > 1) appendLog(`[doer] Reattempt ${attempts}`);
-  machine = next;
+async function orchestrate(): Promise<void> {
+  let machine = edges.find(e => e.from === 'start')?.to ?? fail('The assembly line has no start');
+  let catalyst = 'Seed';
+  while (machine !== 'finish') {
+    if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
+    const testsBefore = machine === 'doer' ? testSnapshot() : undefined;
+    const outcome = execute(machine, catalyst);
+    if (machine === 'doer' && testsChanged(testsBefore!)) fail('The doer changed tests');
+    const outgoing = edges.filter(edge => edge.from === machine);
+    let next: string;
+    if (outgoing.length > 1 && outgoing.every(edge => !edge.label)) {
+      const branches = outgoing.map(edge => edge.to);
+      fanInResults = await executeBranches(branches, machine);
+      next = edges.find(edge => edge.from === branches[0])!.to;
+      catalyst = branches.join(', ');
+    } else {
+      next = route(machine, outcome);
+      catalyst = machine;
+    }
+    if ('findings' in outcome && next !== 'planner') findings = outcome.findings;
+    if (next === 'planner' && machine !== 'planner') {
+      commitWork(machine); completingTask = true; findings = undefined; attempts = 0;
+    } else if (machine === 'test_author' && next === 'doer') {
+      attempts = 0;
+      completingTask = false;
+      findings = undefined;
+    } else if (machine === 'planner') completingTask = false;
+    if (fanInResults && !machine.startsWith('reviewer_') && outgoing.length <= 1) fanInResults = undefined;
+    if (!quiet && machine === 'doer' && attempts > 1) appendLog(`[doer] Reattempt ${attempts}`);
+    machine = next;
+  }
+  if (!quiet) appendLog('[exit] status=successful reason="assembly line finished"');
+  console.log('factory stopped');
 }
-if (!quiet) appendLog('[exit] status=successful reason="assembly line finished"');
-console.log('factory stopped');
+
+void orchestrate();

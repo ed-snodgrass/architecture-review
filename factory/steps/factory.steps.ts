@@ -140,6 +140,24 @@ Given('the target has the machines planner, doer and validator', function () {
   }
 });
 
+Given('the target has the three big brains', function () {
+  for (const machine of [
+    'reviewer_1',
+    'reviewer_2',
+    'reviewer_3',
+    'synthesiser',
+  ]) {
+    const directory = join(
+      this.target,
+      '.assembly-lines',
+      '.machines',
+      machine,
+    );
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'machine.json'), '{}');
+  }
+});
+
 Given('the target has the machines planner, test_author, doer and validator', function () {
   for (const machine of ['planner', 'test_author', 'doer', 'validator']) {
     const directory = join(this.target, '.assembly-lines', '.machines', machine);
@@ -159,6 +177,31 @@ const carefulLine = `digraph assembly_line {
   validator -> doer [label="not satisfied"]
   validator -> planner [label="satisfied"]
 }\n`;
+
+Given(
+  'the three big brains has replaced the validator on the {string} line',
+  function (name: string) {
+    for (const machine of ['reviewer_1', 'reviewer_2', 'reviewer_3', 'synthesiser']) {
+      const directory = join(this.target, '.assembly-lines', '.machines', machine);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, 'machine.json'), '{}');
+    }
+    const file = join(this.target, '.assembly-lines', name + '.dot');
+    writeFileSync(file, `digraph assembly_line {
+  start -> planner
+  planner -> doer [label="not complete"]
+  planner -> finish [label="complete"]
+  doer -> reviewer_1
+  doer -> reviewer_2
+  doer -> reviewer_3
+  reviewer_1 -> synthesiser
+  reviewer_2 -> synthesiser
+  reviewer_3 -> synthesiser
+  synthesiser -> doer [label="not satisfied"]
+  synthesiser -> planner [label="satisfied"]
+}\n`);
+  },
+);
 
 Given("the target has an assembly line {string} on which the doer's work is validated", function (name: string) {
   const directory = join(this.target, '.assembly-lines');
@@ -248,6 +291,11 @@ Given('a plan with three tasks, none of them done', function() {
     this.plan,
     '- [ ] alpha\n- [ ] beta\n- [ ] gamma\n',
   );
+});
+
+Given('a plan with one task, not done', function () {
+  mkdirSync(dirname(this.plan), { recursive: true });
+  writeFileSync(this.plan, '- [ ] alpha\n');
 });
 
 Given('a plan whose first task is done', function() {
@@ -728,6 +776,102 @@ Given('the validator is not satisfied the first time', function () {
   this.env.FACTORY_TEST_REJECT_FIRST = '1';
 });
 
+Given('every reviewer is always satisfied', function () {
+  const script = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+const name = path.basename(process.argv[1]).replace('fake-', '');
+fs.appendFileSync(path.join(workspace, name + '-calls'), 'called\n');
+const argsFile = path.join(workspace, name + '-args');
+if (!fs.existsSync(argsFile)) fs.writeFileSync(argsFile, JSON.stringify(process.argv.slice(2)));
+if (process.env.FACTORY_TEST_REVIEWERS_WAIT === '1') {
+  const begun = path.join(workspace, 'reviewers-begun');
+  fs.appendFileSync(begun, name + '\n');
+  while (fs.readFileSync(begun, 'utf8').trim().split('\n').length < 3) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+}
+if (name === 'reviewer_2' && process.env.FACTORY_TEST_REVIEWER_2_PROSE === '1') {
+  console.log('This review has no machine-readable result.');
+  process.exit(0);
+}
+const findings = JSON.parse(process.env.FACTORY_TEST_REVIEWER_FINDINGS || '{}')[name];
+console.log(JSON.stringify({ satisfied: !findings, findings: findings ? [findings] : [] }));
+`;
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const harness = join(this.workspace, 'agents', 'fake-' + reviewer);
+    writeFileSync(harness, script, { mode: 0o755 });
+    writeFileSync(
+      join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json'),
+      JSON.stringify({ harness, lens: 'single responsibility' }),
+    );
+  }
+});
+
+Given('the synthesiser is always satisfied', function () {
+  const harness = join(this.workspace, 'agents', 'fake-synthesiser');
+  const script = String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const workspace = process.env.FACTORY_TEST_WORKSPACE;
+const calls = path.join(workspace, 'synthesiser-calls');
+fs.appendFileSync(calls, 'called\n');
+fs.writeFileSync(path.join(workspace, 'synthesiser-args'), JSON.stringify(process.argv.slice(2)));
+const count = fs.readFileSync(calls, 'utf8').trim().split('\n').length;
+const reject = process.env.FACTORY_TEST_SYNTHESISER_REJECT_ALWAYS === '1'
+  || (process.env.FACTORY_TEST_SYNTHESISER_REJECT_FIRST === '1' && count === 1);
+console.log(JSON.stringify({
+  satisfied: !reject,
+  findings: reject ? ['The combined review found a problem.'] : [],
+}));
+`;
+  writeFileSync(harness, script, { mode: 0o755 });
+  writeFileSync(
+    join(this.target, '.assembly-lines', '.machines', 'synthesiser', 'machine.json'),
+    JSON.stringify({ harness }),
+  );
+});
+
+Given('no reviewer finishes until all three have begun', function () {
+  this.env.FACTORY_TEST_REVIEWERS_WAIT = '1';
+});
+
+Given('every reviewer is not satisfied, with a finding of its own: {string}, {string} or {string}', function (first: string, second: string, third: string) {
+  this.env.FACTORY_TEST_REVIEWER_FINDINGS = JSON.stringify({ reviewer_1: first, reviewer_2: second, reviewer_3: third });
+});
+
+Given('the second reviewer is not satisfied, with the finding {string}', function (finding: string) {
+  this.env.FACTORY_TEST_REVIEWER_FINDINGS = JSON.stringify({ reviewer_2: finding });
+});
+
+Given('the synthesiser is never satisfied', function () {
+  this.env.FACTORY_TEST_SYNTHESISER_REJECT_ALWAYS = '1';
+});
+
+Given('the synthesiser is not satisfied the first time', function () {
+  this.env.FACTORY_TEST_SYNTHESISER_REJECT_FIRST = '1';
+});
+
+Given('the second reviewer answers in prose, with no result', function () {
+  this.env.FACTORY_TEST_REVIEWER_2_PROSE = '1';
+});
+
+Given('the second reviewer cannot be run', function () {
+  writeFileSync(
+    join(this.target, '.assembly-lines', '.machines', 'reviewer_2', 'machine.json'),
+    JSON.stringify({ harness: join(this.workspace, 'missing-reviewer') }),
+  );
+});
+
+Given("the reviewers' lens is testability", function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const file = join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json');
+    const configuration = JSON.parse(readFileSync(file, 'utf8'));
+    writeFileSync(file, JSON.stringify({ ...configuration, lens: 'testability' }));
+  }
+});
+
 Given('the factory allows at most two attempts at a task', function () {
   this.maxAttempts = 2;
 });
@@ -1148,8 +1292,11 @@ Then('the validator was given the work for the second task', function () {
 });
 
 Then('it was not given the work for the first task', function () {
+  const argsFile = existsSync(join(this.workspace, 'synthesiser-args'))
+    ? join(this.workspace, 'synthesiser-args')
+    : join(this.workspace, 'validator-args');
   const args: string[] = JSON.parse(readFileSync(
-    join(this.workspace, 'validator-args'),
+    argsFile,
     'utf8',
   ));
   const prompt = args.join('\n');
@@ -1191,6 +1338,78 @@ Then("the doer was given the validator's findings", function () {
   const prompt = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8');
 
   assert.match(prompt, /mixes unrelated responsibilities/i);
+});
+
+Then("the doer was given the synthesiser's findings", function () {
+  const prompt = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8');
+  assert.match(prompt, /combined review found a problem/i);
+});
+
+Then('every reviewer has been called once', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const calls = readFileSync(join(this.workspace, reviewer + '-calls'), 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1);
+  }
+});
+
+Then('the synthesiser has been called once', function () {
+  const calls = readFileSync(join(this.workspace, 'synthesiser-calls'), 'utf8').trim().split('\n');
+  assert.equal(calls.length, 1);
+});
+
+Then('the synthesiser has not been called', function () {
+  assert.equal(existsSync(join(this.workspace, 'synthesiser-calls')), false);
+});
+
+Then('every reviewer was asked for a result', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = JSON.parse(readFileSync(join(this.workspace, reviewer + '-args'), 'utf8')).join('\n');
+    assert.match(prompt, /JSON line/i);
+  }
+});
+
+Then('the synthesiser was given {string}, {string} and {string}', function (first: string, second: string, third: string) {
+  const prompt = JSON.parse(readFileSync(join(this.workspace, 'synthesiser-args'), 'utf8')).join('\n');
+  for (const finding of [first, second, third]) assert.match(prompt, new RegExp(finding));
+});
+
+Then('the synthesiser was given {string}', function (finding: string) {
+  const prompt = JSON.parse(readFileSync(join(this.workspace, 'synthesiser-args'), 'utf8')).join('\n');
+  assert.match(prompt, new RegExp(finding));
+});
+
+Then('it was not given {string}', function (finding: string) {
+  const prompt = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8');
+  assert.doesNotMatch(prompt, new RegExp(finding));
+});
+
+Then("it reports that it could not read reviewer_2's result", function () {
+  assert.match(this.result.stdout + this.result.stderr, /could not read reviewer_2's result/i);
+});
+
+Then('it reports that it could not run reviewer_2', function () {
+  assert.match(this.result.stdout + this.result.stderr, /could not run reviewer_2/i);
+});
+
+Then('every reviewer was given the work for the second task', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = JSON.parse(readFileSync(join(this.workspace, reviewer + '-args'), 'utf8')).join('\n');
+    assert.match(prompt, /beta\.txt/);
+  }
+});
+
+Then('every reviewer was given the same prompt', function () {
+  const prompts = ['reviewer_1', 'reviewer_2', 'reviewer_3'].map(reviewer =>
+    JSON.parse(readFileSync(join(this.workspace, reviewer + '-args'), 'utf8')).join('\n'),
+  );
+  assert.equal(new Set(prompts).size, 1);
+});
+
+Then('every reviewer was given {string}', function (lens: string) {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = JSON.parse(readFileSync(join(this.workspace, reviewer + '-args'), 'utf8')).join('\n');
+    assert.match(prompt, new RegExp(lens, 'i'));
+  }
 });
 
 Then('the plan shows the first task as done', function () {
@@ -1308,6 +1527,13 @@ Then('it reports that it has no machine called {string}', function (name: string
 
 Then('it reports that finish cannot be reached from validator', function () {
   assert.match(this.result.stdout + this.result.stderr, /finish cannot be reached from validator/i);
+});
+
+Then('it reports that the branches from doer do not meet', function () {
+  assert.match(
+    this.result.stdout + this.result.stderr,
+    /branches from doer do not meet/i,
+  );
 });
 
 Given('no harness is chosen for the validator', function () {
