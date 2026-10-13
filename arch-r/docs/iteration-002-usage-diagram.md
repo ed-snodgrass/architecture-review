@@ -19,12 +19,14 @@ names retain short labels.
 
 ## Verification
 
-`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`
-passed all 196 supplied tests. `tests/test_usage_diagram.py` now includes durable
+`python3 -m unittest discover -s tests -v`
+passed all 199 supplied tests. `tests/test_usage_diagram.py` now includes durable
 regressions for same-named clients in different packages, distinct observed
 routes, an uncalled client, no-call inventories, declaration-only rendering,
-and deterministic output. This addresses the coverage gap recorded in the
-plan's earlier verification note. The diagram tests also verify that analyzed
+and deterministic output. The supplied tests also cover shared edges with both
+observed and possible connections, missing interface implementations without
+invented routes, and exclusion of test-source callers. This addresses the
+coverage gap recorded in the plan's earlier verification note. The diagram tests also verify that analyzed
 Java sources remain unchanged; no Java compilation or execution is involved.
 
 No test files or plan checkboxes were changed in this run. Existing working-tree

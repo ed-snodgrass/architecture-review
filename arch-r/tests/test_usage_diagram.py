@@ -346,6 +346,90 @@ class {package.title()}Caller {{
         self.assert_repeated_client_routes(Diagram(self, report))
         self.assertEqual(report, render_report(module, reversed(clients)))
 
+    def test_shared_edge_preserves_observed_and_possible_connections(self):
+        self.interface_route()
+        self.put('Order', '''package sample;
+class Order {
+    Port port;
+    HttpGateway gateway;
+    void place(String id) {
+        port.lookup(id);
+        gateway.lookup(id);
+        port.lookup(id);
+    }
+}
+''')
+        report, diagram = self.report()
+        order, gateway, client = [diagram.named(self, name)
+                                  for name in ('Order', 'HttpGateway', 'Client')]
+        # Class-level deduplication cannot erase either method-level certainty.
+        paths = diagram.paths(order, gateway)
+        self.assertTrue(paths)
+        labels = ' '.join(label for path in paths for label in path).lower()
+        self.assertIn('observed', labels)
+        self.assertIn('possible', labels)
+        self.assertIn('Port', diagram.text)
+        pairs = [(source, target) for source, target, _ in diagram.edges]
+        self.assertEqual(len(pairs), len(set(pairs)))
+        self.observed(diagram, gateway, client)
+        self.contained(diagram, order, gateway, client)
+        supporting = report.replace('```mermaid\n' + diagram.text + '```', '')
+        for line in (6, 7, 8):
+            self.assertIn(f'src/main/java/sample/Order.java:{line}', supporting)
+        self.assertIn('src/main/java/sample/Port.java:3', supporting)
+        self.assertIn('src/main/java/sample/HttpGateway.java:2', supporting)
+        self.assertIn('src/main/java/sample/HttpGateway.java:4', supporting)
+        self.clean_nodes(diagram, 'lookup', 'place', 'get')
+        repeated, _ = self.report()
+        self.assertEqual(report, repeated)
+
+    def test_missing_interface_implementation_does_not_invent_diagram_route(self):
+        self.interface_route()
+        (self.module / 'src/main/java/sample/HttpGateway.java').unlink()
+        # An unrelated supported call keeps the usage diagram nonempty.
+        self.put('DirectCaller', '''package sample;
+class DirectCaller {
+    Client client;
+    void fetch(String id) { client.get(id); }
+}
+''')
+        _, diagram = self.report()
+        direct, client = [diagram.named(self, name)
+                          for name in ('DirectCaller', 'Client')]
+        self.observed(diagram, direct, client)
+        for node, (_, label) in diagram.nodes.items():
+            if re.search(r'\b(?:Order|Port)\b', label):
+                self.assertEqual(diagram.paths(node, client), [],
+                                 'No local implementation means no candidate route')
+        self.assertNotIn('HttpGateway', diagram.text)
+        self.contained(diagram, direct, client)
+        self.clean_nodes(diagram, 'lookup', 'place', 'fetch', 'get')
+
+    def test_test_source_callers_never_become_diagram_components(self):
+        self.gateway()
+        self.order()
+        test_root = self.module / 'src/test/java/sample'
+        test_root.mkdir(parents=True)
+        (test_root / 'TestCaller.java').write_text('''package sample;
+class TestCaller {
+    Client client;
+    Gateway gateway;
+    void exercise(String id) {
+        client.get(id);
+        gateway.lookup(id);
+    }
+}
+''', encoding='utf-8')
+        report, diagram = self.report()
+        order, gateway, client = [diagram.named(self, name)
+                                  for name in ('Order', 'Gateway', 'Client')]
+        self.observed(diagram, order, gateway)
+        self.observed(diagram, gateway, client)
+        self.assertNotIn('TestCaller', diagram.text)
+        self.assertNotIn('src/test/java/sample/TestCaller.java', report)
+        self.contained(diagram, order, gateway, client)
+        self.clean_nodes(diagram, 'lookup', 'place', 'exercise', 'get')
+
     def test_shared_nodes_edges_and_all_callsite_evidence_remain_stable(self):
         self.client('BillingClient', 'billing')
         self.put('Gateway', '''package sample;
