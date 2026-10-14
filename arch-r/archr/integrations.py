@@ -84,6 +84,18 @@ def declarations_from_index(index: SourceIndex) -> tuple[IntegrationDeclaration,
     return tuple(unique.values())
 
 
+def repository_types_from_index(index: SourceIndex) -> frozenset[str]:
+    """Direct recognized JPA interfaces eligible as library-call endpoints.
+
+    Share the declaration inventory's exact type checks across resolution,
+    interface routing and tracing; repository fields do not add identities.
+    Call resolution still requires a unique source declaration for each type.
+    """
+    return frozenset(declaration.declaring_type
+                     for declaration in declarations_from_index(index)
+                     if declaration.mechanism == 'Spring Data JPA')
+
+
 def extract_declarations(source: str, source_path: str) -> tuple[IntegrationDeclaration, ...]:
     """Extract supported declarations from one Java compilation unit."""
     return declarations_from_index(index_source(source, source_path))

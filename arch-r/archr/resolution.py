@@ -2,13 +2,23 @@
 
 Links describe source invocations, not execution or transitive relationships.
 Interface methods are endpoints here; selecting implementations and traversing
-backward are separate analysis steps.
+backward are separate analysis steps. Direct Spring Data JPA repositories also
+expose a bounded set of inherited library endpoints without library source;
+other inherited operations remain outside scope.
 """
 
 from dataclasses import dataclass
 
 from .indexing import Field, Invocation, Method, SourceIndex, index_module
 from .module import Module
+from .integrations import repository_types_from_index
+
+
+REPOSITORY_OPERATIONS = frozenset({
+    'save', 'saveAll', 'findById', 'findAll', 'existsById', 'count',
+    'delete', 'deleteById', 'deleteAll',
+})
+OBJECT_METHODS = frozenset({'toString', 'equals', 'hashCode'})
 
 
 @dataclass(frozen=True)
@@ -44,6 +54,7 @@ def resolve_index(index: SourceIndex) -> Resolution:
     types = {}
     for java_type in index.types:
         types.setdefault(java_type.qualified_name, []).append(java_type)
+    repositories = repository_types_from_index(index)
     links, diagnostics = [], []
     for caller in index.types:
         fields = {field.name: field for field in caller.fields}
@@ -79,11 +90,26 @@ def resolve_index(index: SourceIndex) -> Resolution:
                 candidates = tuple(m for m in targets[0].methods
                                    if m.name == invocation.method_name and
                                    m.parameter_count == invocation.argument_count)
+                if field.type_name in repositories:
+                    if invocation.method_name in OBJECT_METHODS:
+                        unresolved('unsupported-operation',
+                                   f'{invocation.method_name} is not a persistence operation.')
+                        continue
+                    if not candidates and invocation.method_name in REPOSITORY_OPERATIONS:
+                        # Known inherited library endpoint: no implementation or
+                        # library source is required. The citation identifies the
+                        # repository declaration, not a fabricated library method.
+                        repository = targets[0]
+                        candidates = (Method(invocation.method_name,
+                                             invocation.argument_count,
+                                             repository.source_path, repository.line),)
                 if not candidates:
+                    excluded = ('inherited methods outside the supported repository operations'
+                                if field.type_name in repositories else 'inherited methods')
                     unresolved('unresolved-method',
                                f'No declared method {field.type_name}.{invocation.method_name} '
                                f'with {invocation.argument_count} arguments was found; '
-                               'inherited methods and same-class helpers are not resolved.')
+                               f'{excluded} and same-class helpers are not resolved.')
                 elif len(candidates) > 1:
                     unresolved('ambiguous-overload',
                                f'Multiple declarations of {field.type_name}.{invocation.method_name} '

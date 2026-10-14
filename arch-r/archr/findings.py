@@ -11,7 +11,7 @@ from enum import Enum
 from .indexing import Invocation
 from .integrations import IntegrationDeclaration, discover_declarations
 from .module import Module
-from .traversal import UsageChain
+from .traversal import UsageChain, trace_usage
 
 
 @dataclass(frozen=True)
@@ -127,10 +127,33 @@ class IntegrationFinding:
 
 
 def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
-    """Retain all declarations, even before operation evidence is available.
+    """Retain declarations and attach supported repository source-call evidence.
 
-    This declaration inventory does not perform operation recognition or tracing.
-    Later analysis can attach those facts without changing declaration identity.
+    All fields of a repository type contribute to its one declaration finding.
+    Other mechanisms retain their declaration inventory until their operation
+    recognizers attach evidence.
     """
-    return tuple(IntegrationFinding(declaration)
-                 for declaration in discover_declarations(module))
+    declarations = discover_declarations(module)
+    usage = (trace_usage(module) if any(d.mechanism == 'Spring Data JPA'
+                                       for d in declarations) else None)
+    repository_chains: dict[str, list[UsageChain]] = {}
+    if usage is not None:
+        for chain in usage.chains:
+            repository_chains.setdefault(chain.client_type, []).append(chain)
+    findings = []
+    for declaration in declarations:
+        chains = (tuple(repository_chains.get(declaration.declaring_type, ()))
+                  if declaration.mechanism == 'Spring Data JPA' else ())
+        # Upstream branches can share one integration call. Identify that call
+        # by its source site, not by the route or the synthetic library endpoint.
+        invocations = {chain.steps[0].link.invocation.site_identity:
+                       chain.steps[0].link.invocation
+                       for chain in chains if chain.steps}
+        operations = tuple(OperationEvidence(
+            invocation.method_name,
+            (SourceEvidence(invocation.source_path, invocation.line),),
+            invocation=invocation) for invocation in sorted(invocations.values(), key=lambda i: (
+                i.source_path, i.line, i.source_offset if i.source_offset is not None else -1,
+                i.receiver, i.method_name, i.argument_count)))
+        findings.append(IntegrationFinding(declaration, operations=operations, chains=chains))
+    return tuple(findings)

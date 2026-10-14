@@ -6,6 +6,7 @@ from .indexing import Invocation, Method, index_module
 from .interfaces import (InterfaceConnection, InterfaceDiagnostic,
                          resolve_interface_index)
 from .module import Module
+from .integrations import repository_types_from_index
 from .resolution import CallLink, Diagnostic, resolve_index
 
 
@@ -22,7 +23,8 @@ class UsageStep:
 @dataclass(frozen=True)
 class UsageChain:
     client_type: str
-    # Nearest Feign first; each entry is one invocation, not an HTTP hop.
+    # Nearest integration first; each entry is one source invocation, not
+    # proof of an HTTP hop or database execution.
     steps: tuple[UsageStep, ...]
     certainty: str
     boundary: str | None = None
@@ -102,9 +104,11 @@ def trace_usage(module: Module,
     resolution = resolve_index(index)
     interfaces = resolve_interface_index(index)
     connections = {connection.link: connection for connection in interfaces.connections}
+    repositories = repository_types_from_index(index)
     interface_types = {item.qualified_name for item in index.types
-                       if item.kind == 'interface' and not item.feign}
-    clients = {item.qualified_name for item in index.types if item.feign}
+                       if item.kind == 'interface' and not item.feign
+                       and item.qualified_name not in repositories}
+    clients = {item.qualified_name for item in index.types if item.feign} | repositories
     incoming = {}
     roots = []
     for link in resolution.links:

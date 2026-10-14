@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .indexing import JavaType, Method, SourceIndex, index_module
 from .module import Module
+from .integrations import repository_types_from_index
 from .resolution import CallLink, resolve_index
 
 
@@ -36,7 +37,9 @@ def resolve_interface_index(index: SourceIndex) -> InterfaceResolution:
 
     Existing source links retain their declared endpoints. Multiple candidates
     are never filtered by method availability to manufacture unique wiring.
-    Feign declarations are terminal, regardless of visible implementations.
+    Feign and directly recognized JPA repository declarations are terminal,
+    regardless of visible implementations: library endpoints do not require or
+    select a local implementation or infer runtime repository wiring.
     """
     types = {java_type.qualified_name: java_type for java_type in index.types}
     # Build declaration candidates once. Method availability cannot narrow this
@@ -49,10 +52,12 @@ def resolve_interface_index(index: SourceIndex) -> InterfaceResolution:
         for interface_name in set(java_type.implements):
             implementations.setdefault(interface_name, []).append(java_type)
 
+    repositories = repository_types_from_index(index)
     connections, diagnostics = [], []
     for link in resolve_index(index).links:
         interface = types[link.target_type]
-        if interface.kind != 'interface' or interface.feign:
+        if (interface.kind != 'interface' or interface.feign or
+                interface.qualified_name in repositories):
             continue
 
         def diagnostic(code, message, candidates=()):
