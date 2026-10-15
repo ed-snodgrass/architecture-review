@@ -1,4 +1,4 @@
-"""Iteration 003: report replacement and coverage-only mode changes.
+"""Iteration 005: report replacement and coverage-only mode changes.
 
 Exercise the public CLI with disposable modules. Compare every report section
 outside coverage, including summary counts, evidence, guidance and diagrams.
@@ -20,12 +20,9 @@ class CoverageModePreservationTests(unittest.TestCase):
     assert_coverage = fixtures.UntracedCallCoverageTests.assert_coverage
 
     def split_coverage(self, report):
-        sections = re.split(r'(?=^## )', report, flags=re.M)
-        coverage = [section for section in sections
-                    if section.startswith('## Analysis coverage\n')]
-        self.assertEqual(len(coverage), 1, report)
-        return coverage[0], ''.join(section for section in sections
-                                    if section not in coverage)
+        self.assertNotRegex(report, r'(?m)^## Analysis coverage$')
+        architecture, limitations = report.split('## Limitations\n', 1)
+        return limitations, architecture
 
     def rich_module(self):
         self.client(url='${products.url}')
@@ -64,11 +61,13 @@ class Order {
         # guidance, evidence and a diagram before comparing modes.
         self.assertIn('Found 2 statically declared Feign outbound HTTP dependencies.',
                       architecture)
-        self.assertEqual(len(re.findall(r'^## Finding ', architecture, re.M)), 2)
-        for text in ('Possible chain', 'Observed call',
+        for section in ('Findings', 'Adapter Review Guidance', 'Findings with Evidence'):
+            content = architecture.split(f'## {section}\n', 1)[1].split('\n## ', 1)[0]
+            self.assertEqual(len(re.findall(r'^### Finding ', content, re.M)), 2)
+        for text in ('Possible chain', 'Observed source call',
                      'destination unresolved', 'client.missing',
                      'src/main/java/sample/Gateway.java:',
-                     '### Where an adapter could fit', '**Suggestion:**',
+                     '**Adapter Recommendation:**', '**Interpreting a client response**',
                      '```mermaid', 'Rel('):
             self.assertIn(text, architecture)
         self.assertNotIn('coverageOnlyGap', default)
@@ -78,8 +77,9 @@ class Order {
                 coverage, unchanged = self.split_coverage(detailed)
                 self.assertEqual(architecture, unchanged,
                                  'Only module-wide coverage may change with the flag')
-                self.assertIn(brief.strip(), coverage)
-                self.assertIn('coverageOnlyGap', coverage)
+                summary, details = coverage.split('### Untraced call sites\n', 1)
+                self.assertEqual(brief.rstrip(), summary.rstrip())
+                self.assertIn('coverageOnlyGap', details)
                 self.assertIn('client.missing', architecture)
                 self.assert_coverage(detailed, 2)
 
