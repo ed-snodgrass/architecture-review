@@ -32,7 +32,8 @@ class OutboundReportTests(unittest.TestCase):
                              show_analysis_limitations=detailed)
 
     def finding(self, report, number):
-        return report.split(f'## Finding {number}:', 1)[1].split('\n## ', 1)[0]
+        from tests.report_sections import findings
+        return findings(report)[number - 1]
 
     def test_declaration_counts_and_no_caller_guidance(self):
         self.put('''package shop;
@@ -47,14 +48,14 @@ class Gateway { JdbcTemplate jdbc; RestTemplate rest; WebClient web; }
         self.assertTrue(report.startswith('# Outbound dependencies: orders\n'))
         self.assertIn('Found 4 integration declarations: 2 HTTP and 2 database.', report)
         self.assertIn('do not establish distinct external systems', report)
-        self.assertEqual(report.count('## Finding '), 4)
+        self.assertEqual(report.split('## Findings\n', 1)[1].split('\n## ', 1)[0].count('### Finding '), 4)
         for number in range(1, 5):
             finding = self.finding(report, number)
-            self.assertIn('Declared integration — No supported caller found', finding)
-            self.assertIn('Destination unknown', finding)
+            self.assertIn('**Status:** No caller found', finding)
+            self.assertIn('**Destination:** Unknown', finding)
             self.assertIn('Declaration evidence:', finding)
             self.assertIn('src/main/java/shop/Example.java:', finding)
-            self.assertIn('No specific adapter placement recommendation', finding)
+            self.assertIn('No recommendation: no supported caller was found', finding)
             self.assertNotIn('**Suggestion:**', finding)
         self.assertIn('does not establish direct JDBC calls', report)
         self.assertEqual(report, self.report())
@@ -71,17 +72,15 @@ class Service { Gateway gateway; void place() { gateway.store(); } }
 ''')
         report = self.report()
         finding = html.unescape(self.finding(report, 1))
-        self.assertIn('Supported source operation caller found', finding)
-        self.assertIn('shop.Service → shop.Gateway → shop.Orders', finding)
-        self.assertIn('receiver orders declared as shop.Orders', finding)
+        self.assertIn('**Status:** Caller found', finding)
+        self.assertIn('shop.Service.place → shop.Gateway.store → shop.Orders.save', finding)
         self.assertIn('shop.Gateway.store', finding)
-        self.assertIn('candidate adapter location', finding)
-        self.assertIn('Review whether', finding)
-        self.assertIn('integration details out of calling code', finding)
+        self.assertIn('Check whether', finding)
+        self.assertIn('persistence-library exceptions', finding)
         self.assertIn('JPQL:** select o from Order o', finding)
         self.assertEqual(report.count('JPQL queries Java persistence entities'), 1)
-        self.assertIn('Destination unknown', finding)
-        self.assertNotIn('HTTP details out of calling code', finding)
+        self.assertIn('**Destination:** Unknown', finding)
+        self.assertNotIn('HTTP status codes', finding)
 
     def test_http_operation_destinations_and_builder_only_status(self):
         self.put('''package shop;
@@ -103,12 +102,12 @@ class Gateway {
         self.assertIn('HTTP method: GET; Path: /items — Host unknown', rest)
         self.assertIn('HTTP method: POST; Destination unresolved: nonliteral expression', rest)
         self.assertNotIn('None', rest)
-        self.assertIn('Invocation in shop.Gateway.request', rest)
-        self.assertIn('receiver rest declared as', rest)
-        self.assertIn('If so, a domain-facing interface', rest)
-        self.assertIn('No supported caller found', web)
+        self.assertIn('→ org.springframework.web.client.RestTemplate.getForObject', rest)
+        self.assertIn('src/main/java/shop/Example.java:8', rest)
+        self.assertNotIn('domain-facing interface', rest)
+        self.assertIn('**Status:** No caller found', web)
         self.assertIn('Request-builder configuration only', web)
-        self.assertIn('no specific', web.lower())
+        self.assertIn('no recommendation', web.lower())
         self.assertNotIn('**Suggestion:**', web)
 
     def test_query_preview_bounded_in_both_modes_without_caller(self):
@@ -124,7 +123,7 @@ interface Orders extends JpaRepository<Order, Long> {
             report = self.report(detailed)
             self.assertIn('SQL:** ' + query[:99] + '…', report)
             self.assertNotIn(query[:100], report)
-            self.assertIn('No supported caller found', report)
+            self.assertIn('**Status:** No caller found', report)
             self.assertIn('Example.java:5', report)
             self.assertNotIn('JPQL queries', report)
 
@@ -153,9 +152,9 @@ class Gateway {
         first = self.finding(report, 2)
         second = self.finding(report, 3)
         self.assertIn('shop.Gateway.first', first)
-        self.assertIn('Supported source operation caller found', first)
+        self.assertIn('**Status:** Caller found', first)
         self.assertIn('shop.Gateway.second', second)
-        self.assertIn('No supported caller found', second)
+        self.assertIn('**Status:** Caller unresolved', second)
         self.assertIn('unsupported-operation', second)
         self.assertNotIn('unsupported-operation', first)
         self.assertNotIn('**Suggestion:**', second)
@@ -172,12 +171,12 @@ class Service { Port port; void place() { port.store(); } }
 ''')
         finding = self.finding(self.report(), 1)
         self.assertIn('Possible chain', finding)
-        self.assertIn('Runtime wiring is unverified', finding)
-        self.assertIn('verify that runtime wiring connects', finding)
-        self.assertIn('If this possible wiring is confirmed', finding)
-        self.assertIn('candidate adapter location', finding)
+        self.assertIn('possible, not confirmed', finding)
+        self.assertIn('verify that runtime wiring connects shop.Port to shop.Gateway', finding)
+        self.assertIn('shop.Gateway.store', finding)
+        self.assertNotIn('candidate adapter location', finding)
         self.assertIn('SQL:** delete from orders', finding)
-        self.assertIn('Destination unknown', finding)
+        self.assertIn('**Destination:** Unknown', finding)
 
     def test_cli_supplies_expanded_findings(self):
         from unittest.mock import patch

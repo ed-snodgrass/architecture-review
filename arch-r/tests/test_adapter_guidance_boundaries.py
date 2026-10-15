@@ -36,7 +36,7 @@ class AdapterGuidanceBoundaryTests(unittest.TestCase):
                             r'(?:HttpGateway|OtherGateway)')
         self.assertNotRegex(text, r'(?:HttpGateway|OtherGateway)[^\n.]*'
                             r'is an? (?:existing |confirmed )?adapter for Order')
-        self.assertRegex(text.lower(), r'(whether|if).*business')
+        self.assertIn('decides what the module should do', text)
         self.assertRegex(self.finding(report).lower(), r'ambigu|multiple implementation')
 
     def test_unsupported_local_receiver_is_not_a_placement_recommendation(self):
@@ -54,8 +54,8 @@ class LocalCaller {
         # lack of a supported chain is neither an unused verdict nor placement.
         self.assertRegex(text.lower(), r'no.*(?:supported.*caller|caller.*found|supported.*call)')
         self.assertRegex(text.lower(), r'within|analysis boundary|supported analysis')
-        self.assertRegex(text.lower(), r'no.*specific.*(?:placement|location)|'
-                         r'(?:cannot|can.t).*recommend.*(?:placement|location)')
+        self.assertIn('cannot identify code to review', text)
+        self.assertNotIn('```java', text)
         self.assertNotIn('LocalCaller', text)
         self.assertEqual(fixtures.unused_claims(self.finding(report)), [])
         self.assertIn('GET /products/{id}', self.finding(report))
@@ -72,14 +72,14 @@ class NamedAdapter {
 ''')
         text = self.guidance(self.report())
         self.suggestion(text)
-        for name in ('Order', 'Gateway', 'NamedAdapter'):
+        for name in ('Gateway.lookup', 'NamedAdapter.fetch'):
             self.assertIn(name, text)
+        self.assertIn('Order.place → sample.Gateway.lookup', self.finding(self.report()))
         direct_review = '\n'.join(line for line in text.splitlines()
                                   if 'NamedAdapter' in line)
         self.assertRegex(direct_review.lower(), r'(review|check|consider|assess)')
-        self.assertRegex(direct_review.lower(), r'(whether|if).*business')
-        self.assertRegex(text, r'(?i)Gateway[^\n]*'
-                         r'(?:candidate|potential|could)[^\n]*adapter')
+        self.assertIn('observed direct caller', direct_review)
+        self.assertIn('Review sample.Gateway.lookup', text)
         self.assertNotRegex(text, r'NamedAdapter\s+(?:contains|handles|implements|has)\s+'
                             r'business (?:logic|decisions)')
         self.assertNotRegex(text, r'(?:NamedAdapter|Gateway)\s+(?:is|provides)\s+'

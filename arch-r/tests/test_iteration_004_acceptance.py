@@ -38,8 +38,8 @@ class Iteration004AcceptanceTests(unittest.TestCase):
         return html.unescape(self.output.read_text(encoding='utf-8'))
 
     def findings(self, report):
-        return [part.split('\n## ', 1)[0]
-                for part in report.split('\n## Finding ')[1:]]
+        from tests.report_sections import findings
+        return findings(report)
 
     def test_declarations_only_exclusions_counts_and_empty_scope(self):
         self.source('Declarations.java', '''
@@ -80,10 +80,10 @@ class Lookalikes { JdbcTemplate jdbc; RestTemplate rest; WebClient web; }
         findings = self.findings(report)
         self.assertEqual(len(findings), 6)
         for finding in findings:
-            self.assertIn('Declared integration — No supported caller found', finding)
-            self.assertIn('Destination unknown', finding)
+            self.assertIn('**Status:** No caller found', finding)
+            self.assertIn('**Destination:** Unknown', finding)
             self.assertIn('Declaration evidence:', finding)
-            self.assertIn('No specific adapter placement recommendation', finding)
+            self.assertIn('No recommendation: no supported caller was found', finding)
         (self.java / 'Declarations.java').unlink()
         empty = self.run_cli()
         self.assertEqual(self.findings(empty), [])
@@ -114,12 +114,11 @@ class Service {
         report = self.run_cli()
         self.assertIn('Found 2 integration declarations: 1 HTTP and 1 database.', report)
         repository, = [f for f in self.findings(report) if 'Spring Data JPA' in f]
-        self.assertIn('shop.Service → shop.Writer → data.Orders', repository)
-        self.assertIn('shop.Service → shop.Reader → data.Orders', repository)
-        self.assertIn('receiver writes declared as data.Orders', repository)
-        self.assertIn('receiver reads declared as data.Orders', repository)
-        self.assertIn('candidate adapter location', repository)
-        self.assertIn('Destination unknown', repository)
+        self.assertIn('shop.Service.place → shop.Writer.store → data.Orders.save', repository)
+        self.assertIn('shop.Service.list → shop.Reader.load → data.Orders.findByCode', repository)
+        self.assertIn('Inspect shop.Writer.store', repository)
+        self.assertIn('Inspect shop.Reader.load', repository)
+        self.assertIn('**Destination:** Unknown', repository)
         self.assertNotIn('SQL:**', repository)
         self.assertNotIn('shop.Browser', repository)
         self.assertIn('GET /items', report)
@@ -160,8 +159,8 @@ class Gateway { RestTemplate rest; RestTemplate unknown;
         self.assertIn('HTTP method: GET; Destination unresolved: nonliteral expression', rest)
         self.assertIn('${base}/items', rest)
         self.assertIn('HTTP method: unresolved; Path: /unknown-verb — Host unknown', rest)
-        self.assertIn('No supported caller found', unknown)
-        self.assertNotIn('Supported source operation caller found', unknown)
+        self.assertIn('**Status:** Caller unresolved', unknown)
+        self.assertNotIn('**Status:** Caller found', unknown)
         self.assertNotIn('**Suggestion:**', unknown)
 
     def test_query_language_and_unicode_bounds_reach_both_cli_modes(self):
@@ -205,7 +204,7 @@ class Gateway { JdbcTemplate jdbc;
                 self.assertIn('src/main/java/Queries.java:', report)
                 self.assertEqual(report.count('JPQL queries Java persistence entities'), 1)
                 repository, = [f for f in self.findings(report) if 'Spring Data JPA' in f]
-                self.assertIn('No supported caller found', repository)
+                self.assertIn('**Status:** No caller found', repository)
 
     def test_webclient_requests_builders_and_split_chains_have_bounded_coverage(self):
         self.source('Gateway.java', '''
@@ -225,11 +224,11 @@ class Service { Gateway gateway; void act() { gateway.run(); } }
         request, = [f for f in findings if f.split('\n', 1)[0].endswith('Gateway.request')]
         builder, = [f for f in findings if f.split('\n', 1)[0].endswith('Gateway.builder')]
         split, = [f for f in findings if f.split('\n', 1)[0].endswith('Gateway.split')]
-        self.assertIn('Supported source operation caller found', request)
-        self.assertIn('Service → Gateway', request)
+        self.assertIn('**Status:** Caller found', request)
+        self.assertIn('Service.act → Gateway.run', request)
         self.assertIn('HTTP method: GET; Path: /items — Host unknown', request)
         for finding in (builder, split):
-            self.assertIn('No supported caller found', finding)
+            self.assertIn('**Status:** No caller found', finding)
             self.assertIn('Request-builder configuration only', finding)
             self.assertNotIn('**Suggestion:**', finding)
         detailed = self.run_cli(True)

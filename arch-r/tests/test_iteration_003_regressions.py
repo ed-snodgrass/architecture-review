@@ -70,7 +70,8 @@ class {name} {{
         for call in calls:
             self.assertNotIn(call, default)
         self.assertNotIn('unsupported-receiver', default)
-        self.assertEqual(len(re.findall(r'^## Finding ', default, re.M)), 2)
+        from tests.report_sections import findings
+        self.assertEqual(len(findings(default)), 2)
         expected_lines = (8, 8, 9, 10, 11, 12, 13)
         for before in (False, True):
             with self.subTest(flag_before_path=before):

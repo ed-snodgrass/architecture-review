@@ -87,9 +87,8 @@ interface {name} {{ String get(String id); }}
         self.assertLessEqual(len(coverage.split()), 55, coverage)
 
     def architectural_sections(self, report):
-        sections = re.split(r'(?=^## )', report, flags=re.M)
-        return [s for s in sections if s.startswith('## Finding ')
-                or s.startswith('## Architectural connections')]
+        from tests.report_sections import findings, section
+        return findings(report) + [section(report, 'Architectural Connections')]
 
     def seven_sites(self):
         self.client()
@@ -116,7 +115,8 @@ class Order {
         self.assertTrue(all(d.code == 'unsupported-receiver' for d in usage.diagnostics))
         report = self.report()
         self.assert_coverage(report, 7)
-        self.assertEqual(len(re.findall(r'^## Finding ', report, re.M)), 1)
+        from tests.report_sections import findings
+        self.assertEqual(len(findings(report)), 1)
         self.assertIn('Found 1 statically declared Feign outbound HTTP dependency.', report)
         for method in ('getId', 'getName', 'getCode', 'getRegion', 'getStatus', 'getToken', 'getTime'):
             self.assertNotIn(method, report)
@@ -124,7 +124,9 @@ class Order {
             self.assertNotIn(f'src/main/java/sample/Order.java:{line}', report)
         self.assertNotIn('unsupported-receiver', report)
         self.assertNotIn('Request', report)
-        self.assertIn('src/main/java/sample/Order.java:5', report)
+        self.assertIn('sample.Order.place → sample.Client.get', report)
+        from tests.analysis_evidence import locations
+        self.assertIn('src/main/java/sample/Order.java:5', locations(self.module))
 
     def test_details_flag_positions_preserve_architecture_and_order_sites(self):
         self.seven_sites()
@@ -433,8 +435,9 @@ class Shared {
                 # Explicit Client field evidence makes this site relevant to
                 # products, but not billing merely because it shares a method.
                 findings = self.architectural_sections(default)
-                product = next(s for s in findings if re.match(r'## Finding \d+: products', s))
-                billing = next(s for s in findings if 'billing' in s and s.startswith('## Finding'))
+                from tests.report_sections import finding
+                product = finding(default, 'products')
+                billing = finding(default, 'billing')
                 self.assertIn('missing', product)
                 self.assertNotIn('products.missing', billing)
                 self.assertNotIn(first.message, billing)
@@ -443,8 +446,8 @@ class Shared {
         finally:
             os.chdir(old_cwd)
         self.assert_coverage(detailed, 1)
-        sections = re.split(r'(?=^## )', detailed, flags=re.M)
-        context = '\n'.join(s for s in sections if not s.startswith('## Finding '))
+        from tests.report_sections import section
+        context = section(detailed, 'Limitations')
         self.assertEqual(context.count('src/main/java/sample/Shared.java:5'), 1, context)
         self.assertEqual(context.count(first.message), 1, context)
         self.assertEqual(context.count(second.message), 1, context)
@@ -473,7 +476,7 @@ class Order {
             self.assert_coverage(report, 0)
             self.assertIn('destination unresolved', report)
             self.assertIn('Possible chain', report)
-            self.assertIn('Runtime wiring is unverified', report)
+            self.assertIn('verify that runtime wiring connects', report)
             self.assertRegex(report.lower(), r'boundary|limit')
 
     def test_cycle_and_depth_cutoffs_do_not_inflate_untraced_count(self):
@@ -496,9 +499,11 @@ class Checkout {
         self.assertFalse(usage.diagnostics)
         report = self.report()
         self.assert_coverage(report, 0)
-        self.assertIn('Cycle cutoff invocation', report)
-        self.assertIn('src/main/java/sample/Order.java:5', report)
-        self.assertIn('src/main/java/sample/Checkout.java:4', report)
+        self.assertIn('Cycle cutoff:', report)
+        from tests.analysis_evidence import locations
+        retained = locations(self.module)
+        self.assertIn('src/main/java/sample/Order.java:5', retained)
+        self.assertIn('src/main/java/sample/Checkout.java:4', retained)
         detailed = self.report(details=True)
         self.assert_coverage(detailed, 0)
         self.assertEqual(self.architectural_sections(report), self.architectural_sections(detailed))

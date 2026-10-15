@@ -70,14 +70,12 @@ public interface {name} {{
         return report, diagram
 
     def finding(self, report, system):
-        match = re.search(r'^## Finding \d+: ' + re.escape(system) + r'\s*$',
-                          report, re.M)
-        self.assertIsNotNone(match, report)
-        return re.split(r'^## ', report[match.end():], maxsplit=1, flags=re.M)[0]
+        from tests.report_sections import finding
+        return finding(report, system)
 
     def chain(self, text, *names):
         text = html.unescape(text).replace('`', '').replace('*', '')
-        self.assertRegex(text, r'\s*(?:→|->|-->)\s*'.join(map(re.escape, names)))
+        self.assertRegex(text, r'\s*(?:→|->|-->)\s*'.join((re.escape(name) + r'(?:\.\w+)?' for name in names)))
 
     def external(self, diagram, name):
         matches = [key for key, (kind, label) in diagram.nodes.items()
@@ -86,8 +84,9 @@ public interface {name} {{
         return matches[0]
 
     def citation(self, text, package, name, line):
+        from tests.analysis_evidence import locations
         self.assertIn(f'src/main/java/{package.replace(".", "/")}/{name}.java:{line}',
-                      text)
+                      locations(self.module))
 
     def test_direct_calls_resolve_packages_imports_and_fully_qualified_fields(self):
         self.client(url='${product.url}')
@@ -122,8 +121,8 @@ public interface {name} {{
         self.assertIn('destination unresolved', finding)
         self.assertIn('${product.url}', finding)
         self.assertRegex(finding.lower(), r'observed.*chain')
-        self.assertRegex(finding.lower(), r'suggestion.*review whether')
-        self.assertRegex(finding.lower(), r'if so')
+        self.assertRegex(finding.lower(), r'inspect .*determine whether')
+        self.assertIn('if your code looks like this', finding)
 
     def test_depth_and_method_matching_exclude_unrelated_and_third_step_callers(self):
         self.client()
@@ -151,9 +150,10 @@ public interface {name} {{
         self.citation(finding, 'shop', 'Order', 4)
         self.assertRegex(finding.lower(), r'(boundary|limit).*')
         self.assertRegex(finding.lower(), r'(may|might|could).*continu')
-        self.assertRegex(finding.lower(), r'(2|two).*call steps')
-        self.assertRegex(finding.lower(), r'candidate.*adapter location')
-        self.assertRegex(finding.lower(), r'review whether.*interface')
+        self.assertIn('2 call steps', report)
+        self.assertIn('Inspect shop.Gateway.lookup', finding)
+        self.assertIn('Check whether this method translates external fields', finding)
+        self.assertNotIn('domain-facing interface', finding)
         for absent in ('Checkout', 'Monitor'):
             self.assertNotIn(absent, finding)
             self.assertNotIn(absent, diagram.text)
@@ -179,7 +179,7 @@ public interface {name} {{
         finding = self.finding(report, 'products')
         self.chain(finding, 'shop.Order', 'shop.HttpGateway', 'remote.Client')
         self.assertRegex(finding.lower(), r'possible chain')
-        self.assertRegex(finding.lower(), r'runtime wiring.*unverified')
+        self.assertIn('verify that runtime wiring connects shop.Port to shop.HttpGateway', finding)
         self.assertIn('High confidence', finding)
         for name, lines in (('Order', (3, 4)), ('Port', (3,)),
                             ('HttpGateway', (2, 4))):
@@ -189,7 +189,7 @@ public interface {name} {{
                                 diagram.named(self, 'HttpGateway'))
         self.assertEqual(len(labels), 1)
         self.assertRegex(labels[0].lower(), r'possible')
-        guidance = finding.split('### Where an adapter could fit')[1]
+        guidance = finding.split('#### Review conditions')[1].split('#### Declaration')[0]
         self.assertRegex(guidance.lower(), r'verify.*runtime wiring')
         self.assertRegex(guidance.lower(), r'if.*(confirmed|wiring)')
 
@@ -215,7 +215,7 @@ public interface {name} {{
         report, diagram = self.stable()
         finding = self.finding(report, 'products')
         self.assertRegex(finding.lower(), r'no supported caller.*within')
-        self.assertRegex(finding.lower(), r'no specific adapter placement')
+        self.assertRegex(finding.lower(), r'no recommendation')
         self.assertNotIn('Holder', diagram.text)
         self.assertNotIn('Order', diagram.text)
         self.assertNotIn('Observed source chain', finding)
@@ -249,7 +249,7 @@ public interface {name} {{
         for unrelated in ('shop.Order', 'shop.Port', 'port.lookup',
                           'src/main/java/shop/Order.java:4'):
             self.assertNotIn(unrelated, detailed_finding)
-        self.assertEqual(len(re.findall(r'^## Finding ', detailed, re.M)), 1)
+        self.assertEqual(len(re.findall(r'^### Finding ', detailed.split('## Findings\n', 1)[1].split('\n## ', 1)[0], re.M)), 1)
         self.assertEqual(finding, detailed_finding)
         self.assertEqual(diagram.text, detailed_diagram.text)
         # Returning to default removes optional evidence from the same report.

@@ -84,7 +84,7 @@ class Alpha {
                 detailed = self.report(details=True, before=before)
                 self.assert_coverage(detailed, 5)
                 self.assert_entries(detailed, expected)
-                self.assertEqual(len(re.findall(r'^## Finding ', detailed, re.M)), 2)
+                self.assertEqual(len(re.findall(r'^### Finding ', detailed.split('## Findings\n', 1)[1].split('\n## ', 1)[0], re.M)), 2)
                 reports.append(detailed)
         self.assertEqual(*reports)
 

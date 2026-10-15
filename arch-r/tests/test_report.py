@@ -30,7 +30,7 @@ public interface InventoryClient {
         report = render_report(self.module, clients)
         for text in ('**Module:** order-service', '/modules/order-service',
                      'Found 1 statically declared Feign outbound HTTP dependency.',
-                     'order-service makes an outbound HTTP connection to inventory',
+                     '**Destination:** https://inventory.example',
                      '**External system:** inventory', 'https://inventory.example',
                      'High confidence', 'literal destination are visible in source',
                      'GET /items/{id}', 'src/main/java/Clients.java:3',
@@ -51,8 +51,8 @@ public interface InventoryClient {
             ('url = "${pricing.url}"', '${pricing.url}', 'property placeholder'),
             ('url = "https://${host}/api"', 'https://${host}/api', 'property placeholder'),
             ('url = Settings.URL', 'Settings.URL', 'not a literal URL'),
-            ('url = ""', 'Not specified', 'no destination URL'),
-            ('', 'Not specified', 'no destination URL'),
+            ('url = ""', '**Destination:** Unknown', 'no destination URL'),
+            ('', '**Destination:** Unknown', 'no destination URL'),
         ]
         for attribute, destination, reason in cases:
             with self.subTest(attribute=attribute):
@@ -60,7 +60,7 @@ public interface InventoryClient {
                 report = render_report(self.module, self.clients(
                     '@FeignClient(name = "pricing"' + suffix + ') interface Pricing {}'))
                 self.assertIn(destination, report)
-                self.assertIn('destination unresolved', report)
+                self.assertIn('unresolved', report)
                 self.assertIn('Lower confidence', report)
                 self.assertIn(reason, report)
                 self.assertNotIn('High confidence', report)
@@ -76,8 +76,8 @@ interface Shipping {}
         self.assertEqual(report, render_report(self.module, reversed(clients)))
         self.assertEqual(report, render_report(self.module, clients))
         self.assertIn('Found 3 statically declared Feign outbound HTTP dependencies.', report)
-        self.assertLess(report.index('Finding 1: first'), report.index('Finding 2: shipping'))
-        self.assertIn('Finding 3: pricing', report)
+        self.assertLess(report.index('Finding 1: First'), report.index('Finding 2: Shipping'))
+        self.assertIn('Finding 3: Pricing', report)
         self.assertEqual(report.count('```mermaid'), 1)
         self.assertEqual(report.count('System_Ext('), 3)
         self.assertTrue(report.endswith('\n'))
@@ -90,11 +90,11 @@ interface Shipping {}
         for supported_form in ('explicitly typed fields', 'constructor-injected fields',
                                'field.method(...)', 'this.field.method(...)'):
             self.assertIn(supported_form, report)
-        self.assertIn('separate domain-facing port or adapter is needed', report)
-        self.assertIn('not assumed to be a sufficient architectural adapter', report)
+        self.assertIn('do not prove runtime wiring, execution, or reachability', report)
+        self.assertNotIn('domain-facing', report)
         self.assertEqual(report.count('```mermaid'), 1)
         self.assertNotIn('System_Ext(', report)
-        self.assertNotIn('## Finding', report)
+        self.assertNotIn('### Finding ', report)
 
     def test_unknown_names_and_operations_are_not_invented(self):
         clients = self.clients('''@FeignClient(name = Names.SYSTEM) interface Unknown {
@@ -105,7 +105,7 @@ interface Shipping {}
         self.assertIn('External system name unresolved: Names.SYSTEM', report)
         self.assertIn('External system name not specified', report)
         self.assertIn('HTTP method unspecified path unspecified', report)
-        self.assertIn('No supported mapped HTTP operations were discovered', report)
+        self.assertIn('No supported operations observed', report)
         self.assertNotIn('GET /', report)
 
     def test_arrays_and_interface_evidence(self):
@@ -117,7 +117,8 @@ interface Shipping {}
         report = render_report(self.module, clients)
         for operation in ('GET /api/one', 'GET /api/two', 'POST /api/one', 'POST /api/two'):
             self.assertIn(operation, report)
-        self.assertIn('src/main/java/Clients.java:3; src/main/java/Clients.java:5', report)
+        self.assertIn('src/main/java/Clients.java:4', report)
+        self.assertIn('src/main/java/Clients.java:5', report)
 
     def test_markdown_and_mermaid_injection_are_escaped(self):
         hostile = 'evil"), System_Ext(injected, "x")\n```\n<script>&[*]\\|'

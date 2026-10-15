@@ -21,11 +21,8 @@ class FindingDiagnosticRelevanceTests(unittest.TestCase):
     architectural_sections = coverage_fixtures.UntracedCallCoverageTests.architectural_sections
 
     def finding(self, report, system):
-        sections = self.architectural_sections(report)
-        matches = [s for s in sections
-                   if re.match(r'## Finding \d+: ' + re.escape(system) + r'\s*\n', s)]
-        self.assertEqual(len(matches), 1, report)
-        return matches[0]
+        from tests.report_sections import finding
+        return finding(report, system)
 
     def assert_modes_preserve_findings(self, default, detailed):
         self.assertEqual(self.architectural_sections(default),
@@ -145,8 +142,8 @@ class Shared {
         self.assertIn('products.missing', products)
         self.assertIn('src/main/java/sample/Shared.java:6', products)
         self.assertRegex(products.lower(), r'no.*(?:declared|matching).*method')
-        guidance = products.split('### Where an adapter could fit', 1)[1]
-        self.assertRegex(guidance.lower(), r'no specific adapter placement')
+        guidance = products.split('#### Review conditions', 1)[1].split('#### Declaration', 1)[0]
+        self.assertIn('cannot identify code to review', guidance)
         billing = self.finding(default, 'billing')
         self.assertNotIn('products.missing', billing)
         self.assertNotIn('src/main/java/sample/Shared.java:6', billing)
@@ -176,7 +173,7 @@ class Order {
         self.assertNotIn('unsupported-receiver', finding)
         self.assertIn('src/main/java/sample/Order.java:7', finding)
         self.assertRegex(finding.lower(), r'generic.*not supported')
-        guidance = finding.split('### Where an adapter could fit', 1)[1]
+        guidance = finding.split('#### Review conditions', 1)[1].split('#### Declaration', 1)[0]
         self.assertNotIn('getId', guidance)
         self.assertNotIn('generic', guidance)
         self.assertIn('getId', detailed)

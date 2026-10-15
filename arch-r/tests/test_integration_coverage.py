@@ -93,7 +93,7 @@ builder.retrieve().bodyToMono(String.class);
 ''')
         default = self.report()
         self.assert_coverage(default, 2)
-        self.assertIn('No supported caller found', default)
+        self.assertIn('**Status:** No caller found', default)
         coverage, architecture = self.split_coverage(self.report(details=True))
         self.assertIn('builder.retrieve', coverage)
         self.assertIn('bodyToMono', coverage)

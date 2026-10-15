@@ -57,7 +57,7 @@ public interface InventoryClient {
             f'&#{ord(char)};' if char in '&<>`*_[]\\|"' or ord(char) < 32
             or ord(char) == 127 else char for char in str(self.module))
         for expected in (
-            "order-service makes an outbound HTTP connection to inventory",
+            "**External system:** inventory",
             "https://inventory.example", "High confidence", "GET /items/{id}",
             "src/main/java/InventoryClient.java:3", "src/main/java/InventoryClient.java:5",
             'System(module, "order-service"', 'Container(feign_1, "InventoryClient"',
@@ -65,8 +65,8 @@ public interface InventoryClient {
         ):
             self.assertIn(expected, report)
         self.assertNotIn("did not inspect callers", report)
-        self.assertIn("### How the code uses this connection", report)
-        self.assertIn("### Evidence and uncertainty", report)
+        self.assertIn("#### Observed Call Chains", report)
+        self.assertIn("## Findings with Evidence", report)
         self.assertNotIn("getItem", report.split("```mermaid")[1].split("```")[0])
 
     def test_module_path_with_underscores_and_brackets_is_markdown_escaped(self):

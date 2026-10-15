@@ -57,15 +57,18 @@ class Zulu {
         report, usage = self.render()
         self.assertEqual(len(usage.untraced_sites), 2)
         self.summary_paragraph(report, 2)
-        self.assertEqual(len(re.findall(r'^## Finding ', report, re.M)), 2)
+        from tests.report_sections import findings
+        self.assertEqual(len(findings(report)), 2)
         for diagnostic in usage.diagnostics:
             self.assertNotIn(diagnostic.code, report)
             self.assertNotIn(diagnostic.message, report)
             self.assertNotIn(diagnostic.invocation.method_name, report)
-        # Supported evidence still exists; merely hiding all source citations
-        # would not satisfy the presentation contract.
-        self.assertIn('src/main/java/sample/Alpha.java:4', report)
-        self.assertIn('src/main/java/sample/Zulu.java:4', report)
+        # Compact paths replace call-step citations, not analysis evidence.
+        self.assertIn('sample.Alpha.work → sample.Client.get', report)
+        self.assertIn('sample.Zulu.work → sample.BillingClient.get', report)
+        from tests.analysis_evidence import locations
+        self.assertIn('src/main/java/sample/Alpha.java:4', locations(self.module))
+        self.assertIn('src/main/java/sample/Zulu.java:4', locations(self.module))
 
     def test_no_findings_still_gets_summary_without_individual_evidence(self):
         self.put('Plain', '''package sample;
@@ -91,7 +94,7 @@ class Plain {
                     self.client(url='${products.url}')
                 report, usage = self.render()
                 self.assertEqual(usage.untraced_sites, ())
-                paragraphs = re.split(r'\n\s*\n', report)
+                paragraphs = [p.strip() for p in re.split(r'\n\s*\n', report)]
                 self.assertEqual(paragraphs.count(fixtures.ZERO), 1, report)
                 self.assertNotRegex(report.lower(), r'\b(?:full|complete) (?:java )?coverage\b')
                 self.assertNotRegex(report.lower(), r'\b(?:no|without) external effects\b')

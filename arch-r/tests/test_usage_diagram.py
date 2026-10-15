@@ -314,7 +314,8 @@ class {package.title()}Caller {{
         for package in ('products', 'billing', 'archive'):
             self.assertIn(f'src/main/java/{package}/RemoteClient.java:4', report)
         for package in ('products', 'billing'):
-            self.assertIn(f'src/main/java/sample/{package.title()}Caller.java:5', report)
+            from tests.analysis_evidence import locations
+            self.assertIn(f'src/main/java/sample/{package.title()}Caller.java:5', locations(self.module))
         self.assertFalse(any(source in callers and target == clients[2]
                              for source, target, _ in diagram.edges))
         self.clean_nodes(diagram, 'fetch', 'get')
@@ -374,11 +375,15 @@ class Order {
         self.observed(diagram, gateway, client)
         self.contained(diagram, order, gateway, client)
         supporting = report.replace('```mermaid\n' + diagram.text + '```', '')
+        from tests.analysis_evidence import locations
+        retained = locations(self.module)
         for line in (6, 7, 8):
-            self.assertIn(f'src/main/java/sample/Order.java:{line}', supporting)
-        self.assertIn('src/main/java/sample/Port.java:3', supporting)
-        self.assertIn('src/main/java/sample/HttpGateway.java:2', supporting)
-        self.assertIn('src/main/java/sample/HttpGateway.java:4', supporting)
+            self.assertIn(f'src/main/java/sample/Order.java:{line}', retained)
+        self.assertIn('src/main/java/sample/Port.java:3', retained)
+        self.assertIn('src/main/java/sample/HttpGateway.java:2', retained)
+        self.assertIn('src/main/java/sample/HttpGateway.java:4', retained)
+        self.assertIn('sample.Order.place', supporting)
+        self.assertIn('sample.HttpGateway.lookup', supporting)
         self.clean_nodes(diagram, 'lookup', 'place', 'get')
         repeated, _ = self.report()
         self.assertEqual(report, repeated)
@@ -467,8 +472,9 @@ class OtherOrder {
         self.contained(diagram, order, other, gateway, client, billing)
         pairs = [(source, target) for source, target, _ in diagram.edges]
         self.assertEqual(len(pairs), len(set(pairs)), 'Deduplicate diagram relationships')
-        # Edge deduplication must not discard supporting invocation evidence.
-        supporting = report.replace('```mermaid\n' + diagram.text + '```', '')
+        # Edge and compact-path deduplication must not discard analysis evidence.
+        from tests.analysis_evidence import locations
+        supporting = locations(self.module)
         for name, lines in (('Gateway', (6, 7, 8)), ('Order', (5, 6)),
                             ('OtherOrder', (4,))):
             for line in lines:

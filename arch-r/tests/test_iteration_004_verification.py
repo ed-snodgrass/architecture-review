@@ -65,7 +65,7 @@ class Service { Gateway gateway; void run() { gateway.call(); } }
                 report = self.output.read_bytes()
                 text = report.decode('utf-8')
                 self.assertIn('Found 5 integration declarations: 3 HTTP and 2 database.', text)
-                self.assertIn('Service → Gateway', text)
+                self.assertIn('Service.run → Gateway.call', text)
                 self.assertIn('界' * 99 + '…', text)
                 self.assertNotIn('界' * 100, text)
                 self.assertNotIn('PRIVATE_QUERY_TAIL', text)

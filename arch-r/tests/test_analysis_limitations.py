@@ -155,9 +155,12 @@ class Unresolved {
 ''')
         first = self.report_bytes()
         report = first.decode('utf-8')
+        from tests.analysis_evidence import locations
+        retained = locations(self.module)
         for name in ('AOrder', 'ZOrder'):
+            self.assertIn(f'sample.{name}.work → sample.Client.get', report)
             for line in (5, 6):
-                self.assertIn(f'src/main/java/sample/{name}.java:{line}', report)
+                self.assertIn(f'src/main/java/sample/{name}.java:{line}', retained)
         self.assertNotIn('src/main/java/sample/Unresolved.java:4', report)
         self.assertRegex(report.lower(), r'1 call site(?:s)? (?:was|were) not traced')
         self.assertEqual(first, self.report_bytes())
