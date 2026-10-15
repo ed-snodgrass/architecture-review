@@ -458,8 +458,8 @@ def _usage_diagram_lines(module: Module, clients: list[FeignClient],
     return lines
 
 
-def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
-    """Present retained module-wide gaps, independently of finding relevance."""
+def _coverage_lines(usage: UsageTraversal) -> list[str]:
+    """Present the same module-wide summary in both coverage modes."""
     sites = usage.untraced_sites
     lines = ['', '### Analysis coverage', '']
     count = len(sites)
@@ -469,16 +469,23 @@ def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
     noun, verb = ('site', 'was') if count == 1 else ('sites', 'were')
     lines.append(f'{count} call {noun} {verb} not traced; external effects cannot be ruled out. '
                  'Use `--show-analysis-limitations` for details.')
-    if show_details:
-        lines.extend(['', '### Untraced call sites', ''])
-        for site in sites:
-            invocation, reasons = site.invocation, site.reasons
-            offset = (f' (source offset {invocation.source_offset})'
-                      if invocation.source_offset is not None else '')
-            call = f'{invocation.receiver}.{invocation.method_name}({invocation.argument_count} arguments)'
-            lines.append(f'- {_evidence(invocation.source_path, invocation.line)}{offset}: '
-                         f'{_markdown(call)} — '
-                         + ' '.join(_markdown(reason) for reason in reasons))
+    return lines
+
+
+def _coverage_detail_lines(usage: UsageTraversal) -> list[str]:
+    """Append retained deduplicated, source-ordered sites without changing the summary."""
+    sites = usage.untraced_sites
+    if not sites:
+        return []
+    lines = ['', '### Untraced call sites', '']
+    for site in sites:
+        invocation, reasons = site.invocation, site.reasons
+        offset = (f' (source offset {invocation.source_offset})'
+                  if invocation.source_offset is not None else '')
+        call = f'{invocation.receiver}.{invocation.method_name}({invocation.argument_count} arguments)'
+        lines.append(f'- {_evidence(invocation.source_path, invocation.line)}{offset}: '
+                     f'{_markdown(call)} — '
+                     + ' '.join(_markdown(reason) for reason in reasons))
     return lines
 
 
@@ -785,6 +792,8 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   'not repeated here. Coverage counts recorded untraced calls, not every '
                   'unsupported Java construct.', ''])
     if usage is not None:
-        lines.extend(_coverage_lines(usage, show_analysis_limitations))
+        lines.extend(_coverage_lines(usage))
+        if show_analysis_limitations:
+            lines.extend(_coverage_detail_lines(usage))
         lines.append('')
     return '\n'.join(lines)
