@@ -757,62 +757,33 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   '', '## Findings with Evidence', *evidence_sections,
                   '', '## Limitations', '',
                   'ArchR analyzed Java source only within the targeted module\'s src/main/java; '
-                  'it did not compile, run, or modify the module. Test sources, generated source '
-                  'trees, and other modules are outside the analysis boundary. It did not resolve '
-                  'configuration or property placeholders.', '',
+                  'it did not compile, run, or modify the module. Other source trees and modules '
+                  'are outside this boundary. Declarations and source calls do not prove runtime '
+                  'wiring, execution, or reachability. Destination confidence is independent of '
+                  'caller certainty.', '',
                   ('No usage traversal was supplied for this declaration-only report; no '
                    'caller chains or applied call-step limit are available.' if usage is None else
                    f'The applied traversal limit is {usage.max_depth} call steps backward from '
-                   'each recognized integration. The external connection and interface resolution '
-                   'do not consume call steps. Reaching the limit means a chain may continue, '
-                   'not that additional callers exist. Cycles stop traversal and are identified '
-                   'in the supporting evidence.'), '',
-                  'Supported usage forms are ordinary instance-method invocations through '
-                  'explicitly typed fields, including constructor-injected fields, written as '
-                  'field.method(...) or this.field.method(...). Types are resolved using packages, '
-                  'explicit imports, and fully qualified names. Methods are matched by name and '
-                  'argument count; indistinguishable overloads remain unresolved. Imports, field '
-                  'declarations, constructor assignments, and annotations alone are not usage.', '',
-                  'Ordinary non-generic interfaces with one direct local concrete implementation '
-                  'can yield possible connections, not verified runtime wiring. Multiple '
-                  'implementations remain ambiguous; no local implementation does not establish '
-                  'that none exists elsewhere. Recognized library operations and Feign clients '
-                  'are terminal integration points; library source is not required.', '',
-                  'Local-variable and parameter receivers, chained or dynamically constructed '
-                  'receivers, same-class helpers, inherited methods, generic method and interface '
-                  'resolution, method references, lambdas, and reflection are outside supported '
-                  'traversal, except for the specified repository operations and uninterrupted '
-                  'field-rooted WebClient expressions. Split fluent chains are not reconstructed. '
-                  'Relevant unresolved or unsupported connections remain beside findings with '
-                  'evidence. Coverage summarizes recorded untraced invocations; optional details '
-                  'list those sites, not a comprehensive inventory of unsupported syntax. '
-                  'Unsupported or unresolved connections are not proof of absence of callers.', '',
-                  'Usage is source-only: runtime wiring and execution were not verified. Bean '
-                  'selection, qualifiers, profiles, factories, proxies, and runtime dispatch '
-                  'are not resolved. Source calls do not prove execution or reachability, and '
-                  'destination confidence is independent of usage certainty. ArchR does not '
-                  'determine whether a separate domain-facing port or adapter is needed or issue '
-                  'an architectural acceptance verdict. A Feign integration point is not assumed '
-                  'to be a sufficient architectural adapter.', '',
-                  'Recognized declarations are Spring OpenFeign interfaces, interfaces directly '
-                  'extending Spring Data JpaRepository, and explicitly typed JdbcTemplate, '
-                  'RestTemplate, and WebClient fields, including constructor-injected fields. '
-                  'These Spring types require explicit import, package, or fully qualified type '
-                  'evidence; matching simple names and imports alone are insufficient. '
-                  'Parameters alone, locals, and bean factory methods do not create declarations. '
-                  'Repositories expose declared methods and the bounded common inherited '
-                  'persistence operations, not generated SQL. JdbcTemplate supports query, '
-                  'queryForObject, queryForList, update, execute, and batchUpdate. RestTemplate '
-                  'supports the specified verb-specific operations and exchange; HTTP method '
-                  'and destination evidence may remain unresolved independently. WebClient '
-                  'supports uninterrupted field-rooted verb/uri expressions with retrieve, '
-                  'exchangeToMono, or exchangeToFlux request operations; builder-only expressions '
-                  'are not request callers. Recognized fluent segments count as one call step, '
-                  'not separate untraced receiver sites; nested argument calls remain separate. '
-                  'Query expressions and destination uncertainty stay beside their integration '
-                  'findings, rather than becoming untraced call sites. '
-                  'Other HTTP and database libraries, indirect repository inheritance, custom client subclasses, '
-                  'configuration resolution, and runtime behavior are outside this analysis.', ''])
+                   'each integration; interface resolution and the external connection do not '
+                   'consume steps. Library source is not required for terminal operations.'), '',
+                  '**Caller found** means a supported source caller chain was established. '
+                  '**No caller found** means no supported caller or relevant unresolved caller '
+                  'was recorded within this boundary. **Caller unresolved** means evidence '
+                  'connects a possible caller to the integration, but analysis cannot resolve '
+                  'that connection. Unsupported or unresolved connections are not proof of '
+                  'absence of callers.', '',
+                  'Supported mechanisms are OpenFeign, direct Spring Data JpaRepository '
+                  'interfaces, and typed JdbcTemplate, RestTemplate, and WebClient fields. '
+                  'Supported calls use explicitly typed fields (including constructor-injected '
+                  'fields): field.method(...) or this.field.method(...), plus bounded repository '
+                  'operations and uninterrupted field-rooted WebClient requests. Local interface '
+                  'connections may be possible rather than certain. Other HTTP and database '
+                  'mechanisms are outside scope.', '',
+                  'Configuration and property placeholders are not resolved; unknown or '
+                  'unresolved destinations retain their source uncertainty in the evidence. '
+                  'Finding-specific query, interface, and path uncertainty is recorded there, '
+                  'not repeated here. Coverage counts recorded untraced calls, not every '
+                  'unsupported Java construct.', ''])
     if usage is not None:
         lines.extend(_coverage_lines(usage, show_analysis_limitations))
         lines.append('')
