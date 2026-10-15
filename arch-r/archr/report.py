@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from .discovery import FeignClient, Operation
 from .module import Module
-from .findings import IntegrationFinding
+from .findings import DestinationCertainty, IntegrationFinding
 from .queries import QueryEvidence
 from .resolution import CallLink
 from .traversal import UsageTraversal
@@ -312,32 +312,43 @@ def _feign_labels(clients: list[FeignClient]) -> list[str]:
 
 
 def _usage_diagram_lines(module: Module, clients: list[FeignClient],
-                         usage: UsageTraversal) -> list[str]:
+                         usage: UsageTraversal | None,
+                         findings: list[IntegrationFinding]) -> list[str]:
     """Summarize only displayed method-level routes as shared class edges.
 
     Interface resolution redirects a possible edge to its candidate class;
     unresolved routes and proposed adapters never become diagram components.
     Evidence remains in the findings, independently of edge deduplication.
     """
-    chains = [chain for client in clients for chain in _client_chains(client, usage)]
+    chains = [(chain, f'feign_{index}')
+              for index, client in enumerate(clients, 1)
+              for chain in (_client_chains(client, usage) if usage else ())]
+    chains.extend((chain, f'integration_{index}')
+                  for index, finding in enumerate(findings, 1)
+                  for chain in finding.chains if usage is not None)
     feign_ids = {}
     for index, client in enumerate(clients, 1):
-        for chain in _client_chains(client, usage):
+        for chain in (_client_chains(client, usage) if usage else ()):
             feign_ids[chain.client_type] = f'feign_{index}'
+    for index, finding in enumerate(findings, 1):
+        if finding.declaration.field_name is None:
+            feign_ids[finding.declaration.declaring_type] = f'integration_{index}'
 
     class_names = set()
     relationships = {}
-    for chain in chains:
-        for step in chain.steps:
+    integration_ids = {endpoint for _, endpoint in chains}
+    for chain, endpoint in chains:
+        for depth, step in enumerate(chain.steps):
             link = step.link
             connection = step.interface_connection
-            target = (connection.implementation_type.qualified_name
+            target = (endpoint if depth == 0 else
+                      connection.implementation_type.qualified_name
                       if connection else link.target_type)
             class_names.add(link.caller_type)
-            if target not in feign_ids:
+            if target not in feign_ids and target not in integration_ids:
                 class_names.add(target)
             label = (f'Possible connection through {connection.interface_type.qualified_name} '
-                     '(runtime wiring unverified)' if connection else 'Observed call')
+                     '(runtime wiring unverified)' if connection else 'Observed source call')
             relationships.setdefault((link.caller_type, target), set()).add(label)
     # A Feign declaration can itself contain calling code (for example a
     # default method); reuse its integration node rather than declaring it twice.
@@ -345,6 +356,7 @@ def _usage_diagram_lines(module: Module, clients: list[FeignClient],
     node_ids = {name: f'class_{index}'
                 for index, name in enumerate(sorted(class_names), 1)}
     node_ids.update(feign_ids)
+    node_ids.update({endpoint: endpoint for endpoint in integration_ids})
 
     lines = ['C4Context',
              f'    System(module, "{_diagram(module.name)}", "Analyzed Java/Spring module")',
@@ -355,16 +367,58 @@ def _usage_diagram_lines(module: Module, clients: list[FeignClient],
     for index, label in enumerate(_feign_labels(clients), 1):
         lines.append(f'        Container(feign_{index}, "{_diagram(label)}", '
                      '"OpenFeign", "HTTP integration point")')
+    for index, finding in enumerate(findings, 1):
+        declaration = finding.declaration
+        identity = declaration.declaring_type
+        if declaration.field_name:
+            identity += '.' + declaration.field_name
+        lines.append(f'        Container(integration_{index}, "{_diagram(identity)}", '
+                     f'"{_diagram(declaration.mechanism)}", "Declared integration")')
     lines.append('    }')
+    # Literal destinations are source evidence, not verified runtime systems.
+    # Relative paths and placeholders cannot establish an external destination.
+    destinations = []
+    for finding in findings:
+        literals = {operation.destination.value for operation in finding.operations
+                    if operation.destination.certainty == DestinationCertainty.LITERAL
+                    and operation.destination.value is not None}
+        unknown = (not finding.operations or any(
+            operation.destination.certainty != DestinationCertainty.LITERAL
+            for operation in finding.operations))
+        destinations.append((sorted(literals), unknown))
+    literal_ids = {value: f'literal_{index}' for index, value in enumerate(
+        sorted({value for values, _ in destinations for value in values}), 1)}
+    for value, node in literal_ids.items():
+        lines.append(f'    System_Ext({node}, "{_diagram(value)}", '
+                     '"Literal HTTP destination in source; runtime unverified")')
+    # Shared unknown nodes deliberately do not claim distinct real systems.
+    categories = sorted({f.declaration.category
+                         for f, (_, unknown) in zip(findings, destinations) if unknown})
+    for category in categories:
+        lines.append(f'    System_Ext(unknown_{category}, '
+                     f'"Destination unknown: {category}", '
+                     '"Unresolved destinations; not a count of distinct systems")')
     for index, client in enumerate(clients, 1):
+        certainty = ('Literal destination in source; runtime unverified'
+                     if client.url and '${' not in client.url else 'Destination unknown')
         lines.append(f'    System_Ext(external_{index}, "{_diagram(_system_name(client))}", '
-                     '"External HTTP system")')
+                     f'"External HTTP system; {certainty}")')
     for (source, target), labels in sorted(relationships.items()):
         lines.append(f'    Rel({node_ids[source]}, {node_ids[target]}, '
                      f'"{_diagram("; ".join(sorted(labels)))}")')
     for index, _ in enumerate(clients, 1):
         lines.extend([f'    Rel(module, feign_{index}, "Declares HTTP integration")',
-                      f'    Rel(feign_{index}, external_{index}, "Outbound HTTP")'])
+                      f'    Rel(feign_{index}, external_{index}, '
+                      '"Declared HTTP destination; runtime traffic unverified")'])
+    for index, (finding, (values, unknown)) in enumerate(zip(findings, destinations), 1):
+        category = finding.declaration.category
+        lines.append(f'    Rel(module, integration_{index}, "Declares {category} integration")')
+        if unknown:
+            lines.append(f'    Rel(integration_{index}, unknown_{category}, '
+                         '"Declared integration; destination unknown; not runtime traffic")')
+        for value in values:
+            lines.append(f'    Rel(integration_{index}, {literal_ids[value]}, '
+                         '"Literal destination in source; not runtime traffic")')
     return lines
 
 
@@ -516,8 +570,8 @@ def render_report(module: Module, clients: Iterable[FeignClient],
     if usage is not None:
         lines.extend(_coverage_lines(usage, show_analysis_limitations))
     lines.extend(['', '## Architectural connections', '', '```mermaid'])
-    if usage is not None:
-        lines.extend(_usage_diagram_lines(module, ordered, usage))
+    if usage is not None or expanded:
+        lines.extend(_usage_diagram_lines(module, ordered, usage, expanded))
     else:
         lines.extend(['C4Context',
                       f'    System(module, "{_diagram(module.name)}", "Analyzed Java/Spring module")'])
@@ -525,9 +579,11 @@ def render_report(module: Module, clients: Iterable[FeignClient],
             lines.extend([
                 f'    Container(feign_{index}, "{_diagram(label)}", '
                 '"OpenFeign", "HTTP integration point")',
-                f'    System_Ext(external_{index}, "{_diagram(_system_name(client))}", "External HTTP system")',
+                f'    System_Ext(external_{index}, "{_diagram(_system_name(client))}", '
+                '"External HTTP system; runtime destination unverified")',
                 f'    Rel(module, feign_{index}, "Declares HTTP integration")',
-                f'    Rel(feign_{index}, external_{index}, "Outbound HTTP")',
+                f'    Rel(feign_{index}, external_{index}, '
+                '"Declared HTTP destination; runtime traffic unverified")',
             ])
     lines.extend(['```', '', '## Limitations', '',
                   'ArchR analyzed Java source only within the targeted module\'s src/main/java; '
