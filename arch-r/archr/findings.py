@@ -51,7 +51,7 @@ class DestinationEvidence:
         if self.certainty == DestinationCertainty.PATH:
             return f'Path: {self.value} — Host unknown'
         if self.certainty == DestinationCertainty.UNRESOLVED:
-            return f'Destination unresolved: {self.value}'
+            return f'Destination unresolved: {self.value or "nonliteral expression (not evaluated)"}'
         return f'Literal destination: {self.value}'
 
 

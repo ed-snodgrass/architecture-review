@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 from .discovery import FeignClient, Operation
 from .module import Module
+from .findings import IntegrationFinding
 from .queries import QueryEvidence
 from .resolution import CallLink
 from .traversal import UsageTraversal
@@ -88,14 +89,29 @@ def _link_evidence(link: CallLink) -> str:
             f'method name at {_evidence(target.source_path, method_name_line)}.')
 
 
-def _client_chains(client: FeignClient, usage: UsageTraversal):
+def _integration_call_evidence(link: CallLink, finding: IntegrationFinding) -> str:
+    """Endpoint citations identify declarations, not invented library source."""
+    declaration = finding.declaration
+    return (f'Invocation in {_markdown(link.caller_type + "." + link.caller_method.name)} '
+            f'at {_evidence(link.invocation.source_path, link.invocation.line)}; '
+            f'receiver {_markdown(link.receiver_field.name)} declared as '
+            f'{_markdown(link.receiver_field.type_name)} at '
+            f'{_evidence(link.receiver_field.source_path, link.receiver_field.line)}; '
+            f'recognized operation {_markdown(link.target_type + "." + link.target_method.name)}. '
+            f'Integration declaration: {_evidence(declaration.source_path, declaration.line)}. '
+            'Library source and runtime execution were not inspected.')
+
+
+def _client_chains(client: FeignClient | IntegrationFinding, usage: UsageTraversal):
+    if isinstance(client, IntegrationFinding):
+        return client.chains
     # Match declaration identity, not a simple name shared by different packages.
     return [chain for chain in usage.chains
             if chain.steps[0].link.target_method.source_path == client.source_path
             and chain.client_type.rsplit('.', 1)[-1] == client.interface_name]
 
 
-def _relevant_diagnostics(client: FeignClient, usage: UsageTraversal):
+def _relevant_diagnostics(client: FeignClient | IntegrationFinding, usage: UsageTraversal):
     methods = set()
     for chain in _client_chains(client, usage):
         for step in chain.steps:
@@ -108,8 +124,15 @@ def _relevant_diagnostics(client: FeignClient, usage: UsageTraversal):
     def relevant_call(item):
         if item.receiver_field is None:
             return False
-        return (item.receiver_field.type_name == client.qualified_name
-                or not methods.isdisjoint(item.candidates))
+        if isinstance(client, IntegrationFinding):
+            declaration = client.declaration
+            matches = (item.receiver_field.type_name == declaration.type_name
+                       and (declaration.field_name is None or
+                            (item.caller_type == declaration.declaring_type and
+                             item.receiver_field.name == declaration.field_name)))
+        else:
+            matches = item.receiver_field.type_name == client.qualified_name
+        return matches or not methods.isdisjoint(item.candidates)
 
     def relevant_interface(item):
         if item.link.target_method in methods:
@@ -151,14 +174,16 @@ def _diagnostic_lines(diagnostics, interface_diagnostics) -> list[str]:
     return lines
 
 
-def _usage_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
+def _usage_lines(client: FeignClient | IntegrationFinding, usage: UsageTraversal) -> list[str]:
     chains = _client_chains(client, usage)
+    integration = ('declared integration' if isinstance(client, IntegrationFinding)
+                   else 'Feign integration point')
     lines = ['', '### How the code uses this connection', '',
              'Source calls show possible behavior, not proof of execution. '
              'Observed usage describes source invocations only; destination confidence '
              'is separate from usage certainty.',
              f'The applied traversal limit is {usage.max_depth} call steps; '
-             'the outbound HTTP connection and interface resolution do not count as steps.', '']
+             'the external connection and interface resolution do not count as steps.', '']
     if not chains:
         lines.append('No supported caller was found within the analyzed module and supported '
                      'call forms. This does not establish that the client is unused.')
@@ -169,10 +194,14 @@ def _usage_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
             connection = step.interface_connection
             names.append(connection.implementation_type.qualified_name if connection
                          else step.link.target_type)
+        if isinstance(client, IntegrationFinding):
+            declaration = client.declaration
+            names[-1] = declaration.declaring_type + (
+                '.' + declaration.field_name if declaration.field_name else '')
         label = 'Possible chain' if chain.certainty == 'possible' else 'Observed source chain'
         direct = chain.steps[0].link.caller_type
         lines.append(f'- Chain {number} — {label}: {_markdown(" → ".join(names))}. '
-                     f'{_markdown(direct)} calls the Feign integration point directly.')
+                     f'{_markdown(direct)} calls the {integration} directly.')
         if len(steps) > 1:
             lines.append(f'  {_markdown(direct)} is an intermediary between the upstream '
                          'calling code and this client; this describes the observed '
@@ -192,7 +221,9 @@ def _usage_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
         lines.append(f'- Chain {number}:')
         for step in reversed(chain.steps):
             lines.append(f'  - {"Possible connection" if step.certainty == "possible" else "Observed call"}: '
-                         + _link_evidence(step.link))
+                         + (_integration_call_evidence(step.link, client)
+                            if isinstance(client, IntegrationFinding) and step is chain.steps[0]
+                            else _link_evidence(step.link)))
             if step.interface_connection:
                 connection = step.interface_connection
                 implementation = connection.implementation_type
@@ -211,19 +242,23 @@ def _usage_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
     diagnostics, interfaces = _relevant_diagnostics(client, usage)
     if diagnostics or interfaces:
         lines.append('Relevant unresolved connections follow; these do not establish '
-                     'additional routes to this Feign client:')
+                     'additional routes to this integration:')
         lines.extend(_diagnostic_lines(diagnostics, interfaces))
     return lines
 
 
-def _adapter_guidance_lines(client: FeignClient, usage: UsageTraversal) -> list[str]:
+def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
+                            usage: UsageTraversal) -> list[str]:
     """Suggest reviews only for supported arrangements, never architectural verdicts."""
     lines = ['', '### Where an adapter could fit', '']
     chains = _client_chains(client, usage)
+    expanded = isinstance(client, IntegrationFinding)
+    details = ('integration details' if expanded else 'HTTP details')
+    dependency = ('declared integration' if expanded else 'Feign dependency')
     if not chains:
         lines.append('No supported caller was found within the analysis boundary. '
                      'No specific adapter placement recommendation can be made from '
-                     'this evidence; the Feign dependency remains reported.')
+                     f'this evidence; the {dependency} remains reported.')
         return lines
 
     # Repeated methods and call sites keep their evidence above, but need not
@@ -231,7 +266,12 @@ def _adapter_guidance_lines(client: FeignClient, usage: UsageTraversal) -> list[
     suggestions = []
     for chain in chains:
         direct = _markdown(chain.steps[0].link.caller_type)
-        client_name = _markdown(chain.client_type)
+        if expanded:
+            declaration = client.declaration
+            client_name = _markdown(declaration.declaring_type + (
+                '.' + declaration.field_name if declaration.field_name else ''))
+        else:
+            client_name = _markdown(chain.client_type)
         conditions = []
         for step in reversed(chain.steps):
             connection = step.interface_connection
@@ -248,13 +288,13 @@ def _adapter_guidance_lines(client: FeignClient, usage: UsageTraversal) -> list[
             upstream = _markdown(chain.steps[-1].link.caller_type)
             advice = (f'{direct}, between {upstream} and {client_name}, is a candidate '
                       'adapter location. Review whether its interface expresses the '
-                      'calling code\'s needs and keeps HTTP details out of calling code. '
-                      'Wrapping a Feign client alone does not establish adequate isolation.')
+                      f'calling code\'s needs and keeps {details} out of calling code. '
+                      'Wrapping an integration alone does not establish adequate isolation.')
         else:
             advice = (f'Review whether {direct}, which calls {client_name} directly, '
                       'also handles business decisions. If so, a domain-facing interface '
-                      'between that calling code and the Feign integration could isolate '
-                      'external-service and HTTP details. The direct caller may itself '
+                      f'between that calling code and the {dependency} could isolate '
+                      f'external-service and {details}. The direct caller may itself '
                       'serve as an adapter; direct use alone is not an architectural defect.')
         suggestion = '- **Suggestion:** ' + condition + advice
         if suggestion not in suggestions:
@@ -352,27 +392,95 @@ def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
     return lines
 
 
+def _integration_lines(number: int, finding: IntegrationFinding,
+                       usage: UsageTraversal | None) -> list[str]:
+    declaration = finding.declaration
+    identity = declaration.declaring_type
+    if declaration.field_name:
+        identity += '.' + declaration.field_name
+    descriptions = {
+        'Spring Data JPA': 'JPA persistence access through a directly declared repository interface',
+        'Spring JDBC': 'SQL access through a typed JdbcTemplate field',
+        'Spring HTTP': 'HTTP access through a typed RestTemplate field',
+        'Spring reactive HTTP': 'Reactive HTTP access through a typed WebClient field',
+    }
+    lines = ['', f'## Finding {number}: {_markdown(identity)}', '',
+             f'- **Mechanism:** {_markdown(declaration.mechanism)} — '
+             f'{descriptions[declaration.mechanism]}.',
+             f'- **Status:** {finding.status_label}',
+             f'- **Declaration evidence:** {_evidence(declaration.source_path, declaration.line)}',
+             f'- **Destination:** {_markdown(finding.destination.label)}',
+             'Declaration evidence, destination certainty, and usage certainty are separate. '
+             'A source invocation does not prove runtime execution.']
+    if declaration.category == 'database':
+        lines.append('No particular database, database name, or JDBC URL is established. '
+                     'A JPA repository does not establish direct JDBC calls; '
+                     'SQL is not inferred from repository method names.')
+    lines.extend(['', '### Operations and query evidence', ''])
+    if not finding.operations:
+        lines.append('No supported operation evidence was found; the declaration remains reported.')
+    for operation in finding.operations:
+        kind = ('Observed source operation call' if operation.has_supported_caller else
+                'Request-builder configuration only — no observed request operation'
+                if operation.invocation is not None else 'Declared query metadata')
+        citations = '; '.join(_evidence(item.source_path, item.line)
+                              for item in operation.evidence)
+        lines.append(f'- **{kind}:** {_markdown(operation.method_name)}. Evidence: {citations}.')
+        if declaration.category == 'HTTP':
+            lines.append(f'  HTTP method: {_markdown(operation.http_method or "unresolved")}; '
+                         f'{_markdown(operation.destination.label)}.')
+            for item in operation.destination.evidence:
+                lines.append(f'  Destination evidence: {_evidence(item.source_path, item.line)}.')
+        if operation.query is not None:
+            lines.extend(_query_lines(operation.query))
+    if declaration.mechanism == 'Spring reactive HTTP':
+        lines.append('A fluent request operation does not prove subscription or network execution. '
+                     'Builder-only configuration does not establish a supported operation caller.')
+    if usage is not None:
+        lines.extend(_usage_lines(finding, usage))
+        lines.extend(_adapter_guidance_lines(finding, usage))
+    else:
+        lines.extend(['', '### Where an adapter could fit', '',
+                      'No usage traversal was supplied; no specific adapter placement '
+                      'recommendation can be made from this evidence.'])
+    return lines
+
+
 def render_report(module: Module, clients: Iterable[FeignClient],
                   usage: UsageTraversal | None = None, *,
-                  show_analysis_limitations: bool = False) -> str:
+                  show_analysis_limitations: bool = False,
+                  findings: Iterable[IntegrationFinding] = ()) -> str:
     """Render supplied source findings without writing or performing analysis."""
     ordered = sorted(clients, key=lambda c: (c.source_path, c.line, c.interface_name))
+    expanded = sorted((f for f in findings if f.declaration.mechanism != 'OpenFeign'),
+                      key=lambda f: (f.declaration.source_path, f.declaration.line,
+                                     f.declaration.declaring_type,
+                                     f.declaration.field_name or ''))
     name = _markdown(module.name)
-    lines = [f'# Outbound HTTP dependencies: {name}', '',
+    lines = [f'# Outbound dependencies: {name}', '',
              f'**Module:** {name}', f'**Module path:** {_markdown(str(module.path))}', '',
              '## Summary', '']
+    total = len(ordered) + len(expanded)
+    database = sum(f.declaration.category == 'database' for f in expanded)
+    if total:
+        lines.append(f'Found {total} integration declarations: '
+                     f'{total - database} HTTP and {database} database. '
+                     'These counts do not establish distinct external systems.')
+    else:
+        lines.append('No recognized integration declarations were found within supported scope. '
+                     'External dependencies outside supported scope may still exist.')
     if ordered:
         count = len(ordered)
         noun = 'dependency' if count == 1 else 'dependencies'
         lines.append(f'Found {count} statically declared Feign outbound HTTP {noun}.')
-    else:
+    elif not expanded:
         lines.extend(['No statically declared Feign outbound HTTP dependencies were found.',
                       'This does not mean the module makes no outbound calls by other means.'])
-    if usage is not None and ordered:
+    if usage is not None and total:
         lines.extend(['', 'An adapter is code that keeps the details of communicating '
                       'with an external service separate from the module\'s own work. '
                       'A domain-facing interface expresses what the calling code needs '
-                      'without exposing HTTP client details. The guidance below is a '
+                      'without exposing HTTP client or persistence details. The guidance below is a '
                       'suggestion, not an observed fact or a required change.'])
     for index, client in enumerate(ordered, 1):
         system = _markdown(_system_name(client))
@@ -381,9 +489,15 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                       f'{name} makes an outbound HTTP connection to {system} '
                       f'through its {_markdown(client.interface_name)} Feign integration point.', '',
                       f'- **External system:** {system}',
-                      f'- **Destination:** {_markdown(destination)}',
+                      f'- **Destination:** {_markdown(destination)}' +
+                      (' — Destination unknown' if not client.url else ''),
                       f'- **Confidence:** {confidence}. {reason}',
                       f'- **Client declaration evidence:** {_evidence(client.source_path, client.line)}',
+                      ('- **Status:** Declared integration — Supported source operation caller found'
+                       if usage is not None and _client_chains(client, usage) else
+                       '- **Status:** Declared integration — No supported caller found'),
+                      'This is a source declaration, not proof of execution. Destination confidence '
+                      'does not weaken declaration evidence or determine usage certainty.',
                       '', '### HTTP operations (supporting detail)', ''])
         if client.operations:
             for operation in client.operations:
@@ -394,6 +508,11 @@ def render_report(module: Module, clients: Iterable[FeignClient],
         if usage is not None:
             lines.extend(_usage_lines(client, usage))
             lines.extend(_adapter_guidance_lines(client, usage))
+    for index, finding in enumerate(expanded, len(ordered) + 1):
+        lines.extend(_integration_lines(index, finding, usage))
+    if any(operation.query and operation.query.language == 'JPQL'
+           for finding in expanded for operation in finding.operations):
+        lines.extend(['', 'JPQL queries Java persistence entities rather than database tables.'])
     if usage is not None:
         lines.extend(_coverage_lines(usage, show_analysis_limitations))
     lines.extend(['', '## Architectural connections', '', '```mermaid'])
@@ -418,7 +537,7 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   ('No usage traversal was supplied for this declaration-only report; no '
                    'caller chains or applied call-step limit are available.' if usage is None else
                    f'The applied traversal limit is {usage.max_depth} call steps backward from '
-                   'each Feign client. The outbound HTTP connection and interface resolution '
+                   'each recognized integration. The external connection and interface resolution '
                    'do not consume call steps. Reaching the limit means a chain may continue, '
                    'not that additional callers exist. Cycles stop traversal and are identified '
                    'in the supporting evidence.'), '',
@@ -431,11 +550,13 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   'Ordinary non-generic interfaces with one direct local concrete implementation '
                   'can yield possible connections, not verified runtime wiring. Multiple '
                   'implementations remain ambiguous; no local implementation does not establish '
-                  'that none exists elsewhere. Feign clients are terminal integration points.', '',
+                  'that none exists elsewhere. Recognized library operations and Feign clients '
+                  'are terminal integration points; library source is not required.', '',
                   'Local-variable and parameter receivers, chained or dynamically constructed '
                   'receivers, same-class helpers, inherited methods, generic method and interface '
                   'resolution, method references, lambdas, and reflection are outside supported '
-                  'traversal. '
+                  'traversal, except for the specified repository operations and uninterrupted '
+                  'field-rooted WebClient expressions. Split fluent chains are not reconstructed. '
                   'Relevant unresolved or unsupported connections remain beside findings with '
                   'evidence. Coverage summarizes recorded untraced invocations; optional details '
                   'list those sites, not a comprehensive inventory of unsupported syntax. '
@@ -447,7 +568,10 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   'determine whether a separate domain-facing port or adapter is needed or issue '
                   'an architectural acceptance verdict. A Feign integration point is not assumed '
                   'to be a sufficient architectural adapter.', '',
-                  'Only supported Spring OpenFeign declarations and mapping annotations are '
-                  'reported. Other outbound HTTP mechanisms, messaging, databases, inherited '
-                  'operations, and runtime behavior are outside this analysis.', ''])
+                  'Recognized declarations are Spring OpenFeign interfaces, interfaces directly '
+                  'extending Spring Data JpaRepository, and explicitly typed JdbcTemplate, '
+                  'RestTemplate, and WebClient fields. Only the bounded supported operations '
+                  'and uninterrupted field-rooted WebClient expressions are recognized. '
+                  'Other HTTP and database libraries, indirect repository inheritance, custom client subclasses, '
+                  'configuration resolution, and runtime behavior are outside this analysis.', ''])
     return '\n'.join(lines)

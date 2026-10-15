@@ -7,6 +7,7 @@ import sys
 import tempfile
 
 from .discovery import discover_clients
+from .findings import discover_findings
 from .module import AnalysisError, load_module
 from .report import render_report
 from .traversal import DEFAULT_MAX_CALL_STEPS, trace_usage
@@ -43,7 +44,8 @@ def main(argv: list[str] | None = None) -> int:
         clients = discover_clients(module)
         usage = trace_usage(module, max_depth=DEFAULT_MAX_CALL_STEPS)
         content = render_report(module, clients, usage,
-                                show_analysis_limitations=args.show_analysis_limitations)
+                                show_analysis_limitations=args.show_analysis_limitations,
+                                findings=discover_findings(module))
         write_report(module.report_filename, content)
     except AnalysisError as exc:
         print(f"arch-r: {exc}", file=sys.stderr)
