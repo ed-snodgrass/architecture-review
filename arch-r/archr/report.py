@@ -168,9 +168,12 @@ def _diagnostic_lines(diagnostics, interface_diagnostics) -> list[str]:
             lines.append(f'  - Candidate method {_markdown(method.name)}: '
                          f'{_evidence(method.source_path, method.line)}.')
     for diagnostic in interface_diagnostics:
+        link = diagnostic.link
         lines.append(f'- Unresolved interface connection ({_markdown(diagnostic.code)}): '
-                     + _link_evidence(diagnostic.link)
-                     + ' ' + _markdown(diagnostic.message))
+                     f'{_markdown(link.caller_type + "." + link.caller_method.name)} → '
+                     f'{_markdown(link.target_type + "." + link.target_method.name)} '
+                     f'at {_evidence(link.invocation.source_path, link.invocation.line)}. '
+                     + _markdown(diagnostic.message))
         for candidate in diagnostic.candidates:
             lines.append(f'  - Candidate {_markdown(candidate.qualified_name)} declaration: '
                          f'{_evidence(candidate.source_path, candidate.line)}.')
@@ -526,6 +529,83 @@ def _brief_card(number: int, identity: str, client: FeignClient | IntegrationFin
             f'[Evidence](#finding-{number}-evidence)', '']
 
 
+def _method_identity(type_name, method):
+    """Distinguish overloads and declarations without depending on call sites."""
+    return (type_name, method.source_path, method.declaration_line or method.line,
+            method.name, method.parameter_count)
+
+
+def _connection_identity(connection):
+    if connection is None:
+        return None
+    return (connection.interface_type.qualified_name,
+            connection.interface_type.source_path, connection.interface_type.line,
+            _method_identity(connection.implementation_type.qualified_name,
+                             connection.implementation_method),
+            connection.certainty, connection.reason)
+
+
+def _compact_call_lines(chains) -> list[str]:
+    """Group semantic paths, not invocation sites; leave operation citations separate.
+
+    Only terminal methods may differ within a group. Certainty, interface routes,
+    receiver identity, and cutoff behavior remain part of the grouping key.
+    Insertion order retains the traversal's deterministic finding/path order.
+    """
+    groups = {}
+    for chain in chains:
+        steps = tuple(reversed(chain.steps))
+        upstream = tuple((
+            _method_identity(step.link.caller_type, step.link.caller_method),
+            _method_identity(step.link.target_type, step.link.target_method),
+            step.link.receiver_field, step.certainty,
+            _connection_identity(step.interface_connection)) for step in steps[:-1])
+        terminal = steps[-1]
+        cycle = chain.cycle_link
+        cycle_identity = ((_method_identity(cycle.caller_type, cycle.caller_method),
+                           _method_identity(cycle.target_type, cycle.target_method),
+                           cycle.receiver_field) if cycle else None)
+        key = (upstream,
+               _method_identity(terminal.link.caller_type, terminal.link.caller_method),
+               terminal.link.receiver_field, terminal.certainty,
+               _connection_identity(terminal.interface_connection),
+               chain.certainty, chain.boundary, chain.boundary_reason, cycle_identity)
+        if key not in groups:
+            groups[key] = (chain, {})
+        endpoints = groups[key][1]
+        endpoint = _method_identity(terminal.link.target_type, terminal.link.target_method)
+        endpoints.setdefault(endpoint, terminal.link)
+
+    lines = []
+    for chain, endpoints in groups.values():
+        steps = tuple(reversed(chain.steps))
+        names = [step.link.caller_type + '.' + step.link.caller_method.name
+                 for step in steps]
+        label = 'Possible chain' if chain.certainty == 'possible' else 'Observed source chain'
+        targets = [link.target_type + '.' + link.target_method.name
+                   for link in endpoints.values()]
+        if len(targets) == 1:
+            lines.append(f'- {label}: {_markdown(" → ".join([*names, targets[0]]))}.')
+        else:
+            lines.append(f'- {label}: {_markdown(" → ".join(names))}')
+            lines.extend(f'  - → {_markdown(target)}' for target in targets)
+        for step in steps:
+            connection = step.interface_connection
+            if connection:
+                lines.append('  - Possible interface connection: '
+                             f'{_markdown(connection.interface_type.qualified_name)} → '
+                             f'{_markdown(connection.implementation_type.qualified_name + "." + connection.implementation_method.name)}. '
+                             f'{_markdown(connection.reason)}')
+        if chain.boundary:
+            lines.append('  - ' + _markdown(chain.boundary_reason))
+        if chain.cycle_link:
+            link = chain.cycle_link
+            lines.append('  - Cycle cutoff: '
+                         f'{_markdown(link.caller_type + "." + link.caller_method.name)} → '
+                         f'{_markdown(link.target_type + "." + link.target_method.name)}.')
+    return lines
+
+
 def _observed_call_lines(client: FeignClient | IntegrationFinding,
                          usage: UsageTraversal | None) -> list[str]:
     """Keep call evidence in its fixed subsection, including declaration-only reports."""
@@ -537,9 +617,9 @@ def _observed_call_lines(client: FeignClient | IntegrationFinding,
         diagnostics, interfaces = _relevant_diagnostics(client, usage)
         lines.extend(_diagnostic_lines(diagnostics, interfaces))
         return lines
-    # Retain existing path certainty and boundaries; path compaction is separate.
-    lines.extend(line for line in _usage_lines(client, usage)
-                 if not line.startswith('### '))
+    lines.extend(_compact_call_lines(_client_chains(client, usage)))
+    diagnostics, interfaces = _relevant_diagnostics(client, usage)
+    lines.extend(_diagnostic_lines(diagnostics, interfaces))
     return lines
 
 

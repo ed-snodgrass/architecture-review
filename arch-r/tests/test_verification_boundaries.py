@@ -72,7 +72,7 @@ class Order {
         report = self.output.read_text(encoding='utf-8')
         self.assertIn('sample.Order', report)
         self.assertIn('sample.Client', report)
-        self.assertIn('src/main/java/sample/Order.java:5', report)
+        self.assertIn('sample.Order.place → sample.Client.get', report)
 
     def test_excluded_sources_and_configuration_are_not_read_or_reported(self):
         excluded = set()
