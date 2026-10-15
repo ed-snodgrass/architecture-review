@@ -8,7 +8,9 @@ Operation recognizers and report rendering consume this model separately.
 from dataclasses import dataclass
 from enum import Enum
 
+from .discovery import read_java_sources, tokenize
 from .indexing import Invocation
+from .queries import QueryEvidence, jdbc_query
 from .integrations import IntegrationDeclaration, discover_declarations
 from .module import Module
 from .traversal import UsageChain, trace_usage
@@ -67,6 +69,7 @@ class OperationEvidence:
     is_request_operation: bool = True
     http_method: str | None = None
     destination: DestinationEvidence = DestinationEvidence()
+    query: QueryEvidence | None = None
 
     @property
     def has_supported_caller(self) -> bool:
@@ -127,23 +130,47 @@ class IntegrationFinding:
 
 
 def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
-    """Retain declarations and attach supported repository source-call evidence.
+    """Retain declarations and attach supported repository/JDBC source calls.
 
     All fields of a repository type contribute to its one declaration finding.
-    Other mechanisms retain their declaration inventory until their operation
-    recognizers attach evidence.
+    JdbcTemplate calls belong to their specific declaring field. Other
+    mechanisms retain their inventory until their recognizers attach evidence.
     """
     declarations = discover_declarations(module)
-    usage = (trace_usage(module) if any(d.mechanism == 'Spring Data JPA'
+    usage = (trace_usage(module) if any(d.mechanism in ('Spring Data JPA', 'Spring JDBC')
                                        for d in declarations) else None)
-    repository_chains: dict[str, list[UsageChain]] = {}
+    sources = None
+    query_tokens = {}
+
+    def query_for(invocation: Invocation) -> QueryEvidence:
+        # Tokenize only files with supported JDBC calls, once per source file.
+        # Declaration-only fields and unrelated production sources need no SQL
+        # inspection; unknown overloads still retain their operation evidence.
+        nonlocal sources
+        if sources is None:
+            sources = dict(read_java_sources(module))
+        path = invocation.source_path
+        if path not in query_tokens:
+            query_tokens[path] = tokenize(sources[path])
+        return jdbc_query(sources[path], invocation, tokens=query_tokens[path])
+
+    endpoint_chains: dict[str, list[UsageChain]] = {}
+    field_chains: dict[tuple[str, str, str], list[UsageChain]] = {}
     if usage is not None:
         for chain in usage.chains:
-            repository_chains.setdefault(chain.client_type, []).append(chain)
+            endpoint_chains.setdefault(chain.client_type, []).append(chain)
+            if chain.steps:
+                link = chain.steps[0].link
+                field_chains.setdefault((link.caller_type, link.receiver_field.name,
+                                         link.target_type), []).append(chain)
     findings = []
     for declaration in declarations:
-        chains = (tuple(repository_chains.get(declaration.declaring_type, ()))
-                  if declaration.mechanism == 'Spring Data JPA' else ())
+        chains = (tuple(endpoint_chains.get(declaration.declaring_type, ()))
+                  if declaration.mechanism == 'Spring Data JPA' else
+                  tuple(field_chains.get((declaration.declaring_type,
+                                          declaration.field_name,
+                                          declaration.type_name), ()))
+                  if declaration.mechanism == 'Spring JDBC' else ())
         # Upstream branches can share one integration call. Identify that call
         # by its source site, not by the route or the synthetic library endpoint.
         invocations = {chain.steps[0].link.invocation.site_identity:
@@ -152,7 +179,10 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
         operations = tuple(OperationEvidence(
             invocation.method_name,
             (SourceEvidence(invocation.source_path, invocation.line),),
-            invocation=invocation) for invocation in sorted(invocations.values(), key=lambda i: (
+            invocation=invocation,
+            query=(query_for(invocation)
+                   if declaration.mechanism == 'Spring JDBC' else None)
+        ) for invocation in sorted(invocations.values(), key=lambda i: (
                 i.source_path, i.line, i.source_offset if i.source_offset is not None else -1,
                 i.receiver, i.method_name, i.argument_count)))
         findings.append(IntegrationFinding(declaration, operations=operations, chains=chains))

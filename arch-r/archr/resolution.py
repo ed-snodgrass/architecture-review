@@ -2,21 +2,24 @@
 
 Links describe source invocations, not execution or transitive relationships.
 Interface methods are endpoints here; selecting implementations and traversing
-backward are separate analysis steps. Direct Spring Data JPA repositories also
-expose a bounded set of inherited library endpoints without library source;
-other inherited operations remain outside scope.
+backward are separate analysis steps. Direct Spring Data JPA repositories and
+explicit JdbcTemplate fields expose bounded library endpoints without library
+source; other inherited operations remain outside scope.
 """
 
 from dataclasses import dataclass
 
 from .indexing import Field, Invocation, Method, SourceIndex, index_module
 from .module import Module
-from .integrations import repository_types_from_index
+from .integrations import declarations_from_index, repository_types_from_index
 
 
 REPOSITORY_OPERATIONS = frozenset({
     'save', 'saveAll', 'findById', 'findAll', 'existsById', 'count',
     'delete', 'deleteById', 'deleteAll',
+})
+JDBC_OPERATIONS = frozenset({
+    'query', 'queryForObject', 'queryForList', 'update', 'execute', 'batchUpdate',
 })
 OBJECT_METHODS = frozenset({'toString', 'equals', 'hashCode'})
 
@@ -50,11 +53,18 @@ class Resolution:
 
 
 def resolve_index(index: SourceIndex) -> Resolution:
-    """Match name and arity only; never guess between same-arity overloads."""
+    """Match source methods by name/arity; recognize bounded library operations.
+
+    Known JdbcTemplate and inherited repository endpoints preserve the observed
+    arity without claiming to resolve a library overload or validate arguments.
+    Never guess between same-arity source overloads.
+    """
     types = {}
     for java_type in index.types:
         types.setdefault(java_type.qualified_name, []).append(java_type)
     repositories = repository_types_from_index(index)
+    jdbc_fields = {(d.declaring_type, d.field_name)
+                   for d in declarations_from_index(index) if d.mechanism == 'Spring JDBC'}
     links, diagnostics = [], []
     for caller in index.types:
         fields = {field.name: field for field in caller.fields}
@@ -80,6 +90,18 @@ def resolve_index(index: SourceIndex) -> Resolution:
                     unresolved('unsupported-receiver',
                                f'Receiver {receiver} is not an unshadowed explicitly typed field; '
                                'local, parameter and other receiver forms are not followed.')
+                    continue
+                if (caller.qualified_name, field.name) in jdbc_fields:
+                    if invocation.method_name in JDBC_OPERATIONS:
+                        # A bounded library endpoint, cited at the typed field;
+                        # no library source or overload/type inference required.
+                        endpoint = Method(invocation.method_name, invocation.argument_count,
+                                          field.source_path, field.line)
+                        links.append(CallLink(caller.qualified_name, method, field,
+                                              field.type_name, endpoint, invocation))
+                    else:
+                        unresolved('unsupported-operation',
+                                   f'{invocation.method_name} is not a supported JdbcTemplate operation.')
                     continue
                 targets = types.get(field.type_name, [])
                 if len(targets) != 1:

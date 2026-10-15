@@ -55,8 +55,9 @@ def resolve_interface_index(index: SourceIndex) -> InterfaceResolution:
     repositories = repository_types_from_index(index)
     connections, diagnostics = [], []
     for link in resolve_index(index).links:
-        interface = types[link.target_type]
-        if (interface.kind != 'interface' or interface.feign or
+        interface = types.get(link.target_type)
+        # Known library endpoints have no local interface to route.
+        if (interface is None or interface.kind != 'interface' or interface.feign or
                 interface.qualified_name in repositories):
             continue
 

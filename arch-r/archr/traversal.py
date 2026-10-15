@@ -6,7 +6,7 @@ from .indexing import Invocation, Method, index_module
 from .interfaces import (InterfaceConnection, InterfaceDiagnostic,
                          resolve_interface_index)
 from .module import Module
-from .integrations import repository_types_from_index
+from .integrations import declarations_from_index, repository_types_from_index
 from .resolution import CallLink, Diagnostic, resolve_index
 
 
@@ -109,6 +109,8 @@ def trace_usage(module: Module,
                        if item.kind == 'interface' and not item.feign
                        and item.qualified_name not in repositories}
     clients = {item.qualified_name for item in index.types if item.feign} | repositories
+    jdbc_fields = {(d.declaring_type, d.field_name)
+                   for d in declarations_from_index(index) if d.mechanism == 'Spring JDBC'}
     incoming = {}
     roots = []
     for link in resolution.links:
@@ -123,7 +125,8 @@ def trace_usage(module: Module,
             target = _endpoint(link.target_type, link.target_method)
             step = UsageStep(link)
         incoming.setdefault(target, []).append(step)
-        if link.target_type in clients:
+        if (link.target_type in clients or
+                (link.caller_type, link.receiver_field.name) in jdbc_fields):
             roots.append(step)
     for steps in incoming.values():
         steps.sort(key=_step_key)
