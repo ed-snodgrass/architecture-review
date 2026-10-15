@@ -11,7 +11,7 @@ from enum import Enum
 from .discovery import read_java_sources, tokenize
 from .indexing import Invocation, index_module
 from .webclient import webclient_expression
-from .queries import QueryEvidence, jdbc_query
+from .queries import JPA_QUERY, QueryEvidence, jdbc_query, repository_queries
 from .http import rest_facts, destination_kind
 from .integrations import IntegrationDeclaration, discover_declarations
 from .module import Module
@@ -216,6 +216,17 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
                 link = chain.steps[0].link
                 field_chains.setdefault((link.caller_type, link.receiver_field.name,
                                          link.target_type), []).append(chain)
+    repository_operations = {}
+    if any(d.mechanism == 'Spring Data JPA' for d in declarations):
+        index = index_module(module)
+        # A locally declared annotation is not Spring query metadata.
+        if JPA_QUERY not in index.declared_type_names:
+            for owner in index.types:
+                repository_operations[owner.qualified_name] = tuple(
+                    OperationEvidence(
+                        method.name, (SourceEvidence(query.source_path, query.line),),
+                        query=query)
+                    for method in owner.methods for query in repository_queries(method))
     findings = []
     for declaration in declarations:
         chains = (tuple(endpoint_chains.get(declaration.declaring_type, ()))
@@ -242,5 +253,7 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
         ) for invocation in sorted(invocations.values(), key=lambda i: (
                 i.source_path, i.line, i.source_offset if i.source_offset is not None else -1,
                 i.receiver, i.method_name, i.argument_count)))
+        if declaration.mechanism == 'Spring Data JPA':
+            operations = repository_operations.get(declaration.declaring_type, ()) + operations
         findings.append(IntegrationFinding(declaration, operations=operations, chains=chains))
     return tuple(findings)

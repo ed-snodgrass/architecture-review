@@ -4,8 +4,12 @@ from bisect import bisect_left
 from dataclasses import dataclass
 import re
 
-from .discovery import Token, _balanced_end, _literal, tokenize
-from .indexing import Invocation
+from .discovery import Token, _attributes, _balanced_end, _literal, tokenize
+from .indexing import Invocation, Method
+
+
+JPA_QUERY = 'org.springframework.data.jpa.repository.Query'
+JPQL_EXPLANATION = ('JPQL queries Java persistence entities rather than database tables.')
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,12 @@ def jdbc_query(source: str, invocation: Invocation,
             depth += 1
         elif token.text in (')', ']', '}'):
             depth -= 1
+    return QueryEvidence(query_preview(argument), invocation.source_path,
+                         argument[0].line if argument else invocation.line)
+
+
+def query_preview(argument: list[Token]) -> str | None:
+    """Read one literal only, with the same bounded preview for JDBC and JPA."""
     literal = _literal(argument)
     if len(argument) == 1 and argument[0].text.startswith('"""'):
         token = argument[0]
@@ -86,5 +96,32 @@ def jdbc_query(source: str, invocation: Invocation,
         preview = ' '.join(literal.split())
         if len(preview) > 100:
             preview = preview[:99] + '…'
-    return QueryEvidence(preview, invocation.source_path,
-                         argument[0].line if argument else invocation.line)
+    return preview
+
+
+def repository_queries(method: Method) -> tuple[QueryEvidence, ...]:
+    """Extract only Spring @Query value evidence, never named or derived SQL.
+
+    Language certainty is independent of value certainty. Only the literal
+    boolean tokens true/false select a language; constants are not evaluated.
+    """
+    queries = []
+    for annotation in method.annotations:
+        if annotation.type_name != JPA_QUERY:
+            continue
+        attributes = _attributes(list(annotation.arguments))
+        # @Query(name = "...") references a named query, not visible query text.
+        if 'value' not in attributes:
+            continue
+        value = attributes['value']
+        native = attributes.get('nativeQuery')
+        if native is None or [token.text for token in native] == ['false']:
+            language = 'JPQL'
+        elif [token.text for token in native] == ['true']:
+            language = 'SQL'
+        else:
+            language = 'Query (language unresolved)'
+        queries.append(QueryEvidence(
+            query_preview(value), method.source_path,
+            value[0].line if value else annotation.line, language))
+    return tuple(queries)

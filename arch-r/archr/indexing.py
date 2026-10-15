@@ -45,6 +45,13 @@ class Invocation:
 
 
 @dataclass(frozen=True)
+class Annotation:
+    type_name: str
+    arguments: tuple[Token, ...]
+    line: int
+
+
+@dataclass(frozen=True)
 class Method:
     name: str
     parameter_count: int
@@ -53,6 +60,7 @@ class Method:
     invocations: tuple[Invocation, ...] = ()
     # Declaration start may be an annotation; retain the method-name location too.
     declaration_line: int | None = None
+    annotations: tuple[Annotation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -567,6 +575,17 @@ def _members(tokens, opening, closing, path, package, imports):
         if is_method:
             end = _balanced_end(declaration, paren)
             if end is not None:
+                annotations = []
+                cursor = 0
+                while cursor < paren:
+                    if declaration[cursor].text == '@':
+                        name, arguments, following = _annotation(declaration, cursor)
+                        annotations.append(Annotation(
+                            _resolve(name, package, imports), tuple(arguments),
+                            declaration[cursor].line))
+                        cursor = following
+                    else:
+                        cursor += 1
                 methods.append(Method(declaration[paren - 1].text,
                                       len(_groups(declaration[paren + 1:end])),
                                       path, tokens[start].line,
@@ -574,7 +593,8 @@ def _members(tokens, opening, closing, path, package, imports):
                                                    tuple(_parameter_name(group) for group in
                                                          _groups(declaration[paren + 1:end])))
                                       if tokens[i].text == '{' else (),
-                                      declaration[paren - 1].line))
+                                      declaration[paren - 1].line,
+                                      tuple(annotations)))
         elif tokens[i].text == ';':
             fields.extend(_fields(declaration, path, package, imports))
         # Skip initializer/nested type bodies, not their contents as members.
