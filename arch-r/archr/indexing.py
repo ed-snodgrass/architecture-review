@@ -25,6 +25,9 @@ class Invocation:
     explicit_type_arguments: bool = False
     # Absolute lexer offset distinguishes even identical calls on one line.
     source_offset: int | None = None
+    # Lexically visible value names, for distinguishing type constants from
+    # parameter/local member access in integration arguments.
+    value_names: tuple[str, ...] = ()
 
     @property
     def site_identity(self) -> tuple:
@@ -417,7 +420,9 @@ def _invocations(tokens: list[Token], path: str,
                                             path, tokens[start].line,
                                             receiver.startswith('this.') or not any(
                                                 receiver in names for names, _ in scopes),
-                                            explicit_types, tokens[start].start))
+                                            explicit_types, tokens[start].start,
+                                            tuple(sorted(set().union(
+                                                *(names for names, _ in scopes))))))
                     # Continue inside arguments so nested field calls retain evidence.
                     i = method_index + 2
                     continue

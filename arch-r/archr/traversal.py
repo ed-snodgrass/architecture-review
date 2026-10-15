@@ -109,8 +109,9 @@ def trace_usage(module: Module,
                        if item.kind == 'interface' and not item.feign
                        and item.qualified_name not in repositories}
     clients = {item.qualified_name for item in index.types if item.feign} | repositories
-    jdbc_fields = {(d.declaring_type, d.field_name)
-                   for d in declarations_from_index(index) if d.mechanism == 'Spring JDBC'}
+    library_fields = {(d.declaring_type, d.field_name)
+                      for d in declarations_from_index(index)
+                      if d.mechanism in ('Spring JDBC', 'Spring HTTP')}
     incoming = {}
     roots = []
     for link in resolution.links:
@@ -126,7 +127,7 @@ def trace_usage(module: Module,
             step = UsageStep(link)
         incoming.setdefault(target, []).append(step)
         if (link.target_type in clients or
-                (link.caller_type, link.receiver_field.name) in jdbc_fields):
+                (link.caller_type, link.receiver_field.name) in library_fields):
             roots.append(step)
     for steps in incoming.values():
         steps.sort(key=_step_key)

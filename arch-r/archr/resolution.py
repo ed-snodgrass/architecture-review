@@ -21,6 +21,12 @@ REPOSITORY_OPERATIONS = frozenset({
 JDBC_OPERATIONS = frozenset({
     'query', 'queryForObject', 'queryForList', 'update', 'execute', 'batchUpdate',
 })
+REST_OPERATIONS = {
+    'getForObject': 'GET', 'getForEntity': 'GET',
+    'postForObject': 'POST', 'postForEntity': 'POST', 'put': 'PUT',
+    'patchForObject': 'PATCH', 'delete': 'DELETE',
+    'headForHeaders': 'HEAD', 'optionsForAllow': 'OPTIONS', 'exchange': None,
+}
 OBJECT_METHODS = frozenset({'toString', 'equals', 'hashCode'})
 
 
@@ -63,8 +69,9 @@ def resolve_index(index: SourceIndex) -> Resolution:
     for java_type in index.types:
         types.setdefault(java_type.qualified_name, []).append(java_type)
     repositories = repository_types_from_index(index)
-    jdbc_fields = {(d.declaring_type, d.field_name)
-                   for d in declarations_from_index(index) if d.mechanism == 'Spring JDBC'}
+    library_fields = {(d.declaring_type, d.field_name): d.mechanism
+                      for d in declarations_from_index(index)
+                      if d.mechanism in ('Spring JDBC', 'Spring HTTP')}
     links, diagnostics = [], []
     for caller in index.types:
         fields = {field.name: field for field in caller.fields}
@@ -91,8 +98,11 @@ def resolve_index(index: SourceIndex) -> Resolution:
                                f'Receiver {receiver} is not an unshadowed explicitly typed field; '
                                'local, parameter and other receiver forms are not followed.')
                     continue
-                if (caller.qualified_name, field.name) in jdbc_fields:
-                    if invocation.method_name in JDBC_OPERATIONS:
+                mechanism = library_fields.get((caller.qualified_name, field.name))
+                if mechanism is not None:
+                    supported = (JDBC_OPERATIONS if mechanism == 'Spring JDBC'
+                                 else REST_OPERATIONS)
+                    if invocation.method_name in supported:
                         # A bounded library endpoint, cited at the typed field;
                         # no library source or overload/type inference required.
                         endpoint = Method(invocation.method_name, invocation.argument_count,
@@ -101,7 +111,7 @@ def resolve_index(index: SourceIndex) -> Resolution:
                                               field.type_name, endpoint, invocation))
                     else:
                         unresolved('unsupported-operation',
-                                   f'{invocation.method_name} is not a supported JdbcTemplate operation.')
+                                   f'{invocation.method_name} is not a supported {mechanism} operation.')
                     continue
                 targets = types.get(field.type_name, [])
                 if len(targets) != 1:

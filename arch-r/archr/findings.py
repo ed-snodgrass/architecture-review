@@ -11,6 +11,7 @@ from enum import Enum
 from .discovery import read_java_sources, tokenize
 from .indexing import Invocation
 from .queries import QueryEvidence, jdbc_query
+from .http import rest_facts, destination_kind
 from .integrations import IntegrationDeclaration, discover_declarations
 from .module import Module
 from .traversal import UsageChain, trace_usage
@@ -130,29 +131,44 @@ class IntegrationFinding:
 
 
 def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
-    """Retain declarations and attach supported repository/JDBC source calls.
+    """Retain declarations and attach supported repository/JDBC/HTTP source calls.
 
     All fields of a repository type contribute to its one declaration finding.
-    JdbcTemplate calls belong to their specific declaring field. Other
+    JdbcTemplate and RestTemplate calls belong to their declaring field. Other
     mechanisms retain their inventory until their recognizers attach evidence.
     """
     declarations = discover_declarations(module)
-    usage = (trace_usage(module) if any(d.mechanism in ('Spring Data JPA', 'Spring JDBC')
+    usage = (trace_usage(module) if any(d.mechanism in ('Spring Data JPA', 'Spring JDBC', 'Spring HTTP')
                                        for d in declarations) else None)
     sources = None
     query_tokens = {}
 
-    def query_for(invocation: Invocation) -> QueryEvidence:
-        # Tokenize only files with supported JDBC calls, once per source file.
-        # Declaration-only fields and unrelated production sources need no SQL
-        # inspection; unknown overloads still retain their operation evidence.
+    def source_for(invocation: Invocation):
         nonlocal sources
         if sources is None:
             sources = dict(read_java_sources(module))
         path = invocation.source_path
         if path not in query_tokens:
             query_tokens[path] = tokenize(sources[path])
-        return jdbc_query(sources[path], invocation, tokens=query_tokens[path])
+        return sources[path], query_tokens[path]
+
+    def rest_operation(invocation: Invocation) -> OperationEvidence:
+        source, tokens = source_for(invocation)
+        verb, value, line = rest_facts(source, invocation, tokens=tokens)
+        citation = SourceEvidence(invocation.source_path, invocation.line)
+        destination = DestinationEvidence(
+            DestinationCertainty(destination_kind(value)), value,
+            (SourceEvidence(invocation.source_path, line),))
+        return OperationEvidence(invocation.method_name, (citation,),
+                                 invocation=invocation, http_method=verb,
+                                 destination=destination)
+
+    def query_for(invocation: Invocation) -> QueryEvidence:
+        # Tokenize only files with supported JDBC calls, once per source file.
+        # Declaration-only fields and unrelated production sources need no SQL
+        # inspection; unknown overloads still retain their operation evidence.
+        source, tokens = source_for(invocation)
+        return jdbc_query(source, invocation, tokens=tokens)
 
     endpoint_chains: dict[str, list[UsageChain]] = {}
     field_chains: dict[tuple[str, str, str], list[UsageChain]] = {}
@@ -170,13 +186,14 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
                   tuple(field_chains.get((declaration.declaring_type,
                                           declaration.field_name,
                                           declaration.type_name), ()))
-                  if declaration.mechanism == 'Spring JDBC' else ())
+                  if declaration.mechanism in ('Spring JDBC', 'Spring HTTP') else ())
         # Upstream branches can share one integration call. Identify that call
         # by its source site, not by the route or the synthetic library endpoint.
         invocations = {chain.steps[0].link.invocation.site_identity:
                        chain.steps[0].link.invocation
                        for chain in chains if chain.steps}
-        operations = tuple(OperationEvidence(
+        operations = tuple(rest_operation(invocation)
+                           if declaration.mechanism == 'Spring HTTP' else OperationEvidence(
             invocation.method_name,
             (SourceEvidence(invocation.source_path, invocation.line),),
             invocation=invocation,
