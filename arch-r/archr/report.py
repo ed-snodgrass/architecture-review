@@ -248,9 +248,12 @@ def _usage_lines(client: FeignClient | IntegrationFinding, usage: UsageTraversal
 
 
 def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
-                            usage: UsageTraversal) -> list[str]:
+                            usage: UsageTraversal | None) -> list[str]:
     """Suggest reviews only for supported arrangements, never architectural verdicts."""
     lines = ['', '### Where an adapter could fit', '']
+    if usage is None:
+        return [*lines, 'No usage traversal was supplied; no specific adapter placement '
+                'recommendation can be made from this evidence.']
     chains = _client_chains(client, usage)
     expanded = isinstance(client, IntegrationFinding)
     details = ('integration details' if expanded else 'HTTP details')
@@ -425,7 +428,7 @@ def _usage_diagram_lines(module: Module, clients: list[FeignClient],
 def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
     """Present retained module-wide gaps, independently of finding relevance."""
     sites = usage.untraced_sites
-    lines = ['', '## Analysis coverage', '']
+    lines = ['', '### Analysis coverage', '']
     count = len(sites)
     if not count:
         lines.append('No untraced call sites recorded within supported analysis.')
@@ -446,8 +449,9 @@ def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
     return lines
 
 
-def _integration_lines(number: int, finding: IntegrationFinding,
-                       usage: UsageTraversal | None) -> list[str]:
+def _integration_sections(number: int, finding: IntegrationFinding,
+                          usage: UsageTraversal | None
+                          ) -> tuple[list[str], list[str], list[str]]:
     declaration = finding.declaration
     identity = declaration.declaring_type
     if declaration.field_name:
@@ -458,7 +462,8 @@ def _integration_lines(number: int, finding: IntegrationFinding,
         'Spring HTTP': 'HTTP access through a typed RestTemplate field',
         'Spring reactive HTTP': 'Reactive HTTP access through a typed WebClient field',
     }
-    lines = ['', f'## Finding {number}: {_markdown(identity)}', '',
+    heading = ['', f'### Finding {number}: {_markdown(identity)}', '']
+    lines = [*heading,
              f'- **Mechanism:** {_markdown(declaration.mechanism)} — '
              f'{descriptions[declaration.mechanism]}.',
              f'- **Status:** {finding.status_label}',
@@ -470,7 +475,8 @@ def _integration_lines(number: int, finding: IntegrationFinding,
         lines.append('No particular database, database name, or JDBC URL is established. '
                      'A JPA repository does not establish direct JDBC calls; '
                      'SQL is not inferred from repository method names.')
-    lines.extend(['', '### Operations and query evidence', ''])
+    brief = lines
+    lines = [*heading, '#### Operations and query evidence', '']
     if not finding.operations:
         lines.append('No supported operation evidence was found; the declaration remains reported.')
     for operation in finding.operations:
@@ -491,13 +497,14 @@ def _integration_lines(number: int, finding: IntegrationFinding,
         lines.append('A fluent request operation does not prove subscription or network execution. '
                      'Builder-only configuration does not establish a supported operation caller.')
     if usage is not None:
-        lines.extend(_usage_lines(finding, usage))
-        lines.extend(_adapter_guidance_lines(finding, usage))
-    else:
-        lines.extend(['', '### Where an adapter could fit', '',
-                      'No usage traversal was supplied; no specific adapter placement '
-                      'recommendation can be made from this evidence.'])
-    return lines
+        lines.extend(_nested_finding_lines(_usage_lines(finding, usage)))
+    guidance = [*heading, *_nested_finding_lines(_adapter_guidance_lines(finding, usage))]
+    return brief, guidance, lines
+
+
+def _nested_finding_lines(lines: list[str]) -> list[str]:
+    """Keep supporting headings below their finding subsection."""
+    return ['#' + line if line.startswith('### ') else line for line in lines]
 
 
 def render_report(module: Module, clients: Iterable[FeignClient],
@@ -530,8 +537,11 @@ def render_report(module: Module, clients: Iterable[FeignClient],
     elif not expanded:
         lines.extend(['No statically declared Feign outbound HTTP dependencies were found.',
                       'This does not mean the module makes no outbound calls by other means.'])
+    brief_sections: list[str] = []
+    guidance_sections: list[str] = []
+    evidence_sections: list[str] = []
     if usage is not None and total:
-        lines.extend(['', 'An adapter is code that keeps the details of communicating '
+        guidance_sections.extend(['', 'An adapter is code that keeps the details of communicating '
                       'with an external service separate from the module\'s own work. '
                       'A domain-facing interface expresses what the calling code needs '
                       'without exposing HTTP client or persistence details. The guidance below is a '
@@ -539,7 +549,8 @@ def render_report(module: Module, clients: Iterable[FeignClient],
     for index, client in enumerate(ordered, 1):
         system = _markdown(_system_name(client))
         destination, confidence, reason = _destination(client)
-        lines.extend(['', f'## Finding {index}: {system}', '',
+        heading = ['', f'### Finding {index}: {system}', '']
+        brief_sections.extend([*heading,
                       f'{name} makes an outbound HTTP connection to {system} '
                       f'through its {_markdown(client.interface_name)} Feign integration point.', '',
                       f'- **External system:** {system}',
@@ -551,25 +562,27 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                        if usage is not None and _client_chains(client, usage) else
                        '- **Status:** Declared integration — No supported caller found'),
                       'This is a source declaration, not proof of execution. Destination confidence '
-                      'does not weaken declaration evidence or determine usage certainty.',
-                      '', '### HTTP operations (supporting detail)', ''])
+                      'does not weaken declaration evidence or determine usage certainty.'])
+        evidence_sections.extend([*heading, '#### HTTP operations (supporting detail)', ''])
         if client.operations:
             for operation in client.operations:
-                lines.extend(_operation_lines(operation))
+                evidence_sections.extend(_operation_lines(operation))
         else:
-            lines.append('No supported mapped HTTP operations were discovered in this interface; '
+            evidence_sections.append('No supported mapped HTTP operations were discovered in this interface; '
                          'this does not prove that it has no operations.')
         if usage is not None:
-            lines.extend(_usage_lines(client, usage))
-            lines.extend(_adapter_guidance_lines(client, usage))
+            evidence_sections.extend(_nested_finding_lines(_usage_lines(client, usage)))
+        guidance_sections.extend([
+            *heading, *_nested_finding_lines(_adapter_guidance_lines(client, usage))])
     for index, finding in enumerate(expanded, len(ordered) + 1):
-        lines.extend(_integration_lines(index, finding, usage))
+        brief, guidance, evidence = _integration_sections(index, finding, usage)
+        brief_sections.extend(brief)
+        guidance_sections.extend(guidance)
+        evidence_sections.extend(evidence)
     if any(operation.query and operation.query.language == 'JPQL'
            for finding in expanded for operation in finding.operations):
-        lines.extend(['', 'JPQL queries Java persistence entities rather than database tables.'])
-    if usage is not None:
-        lines.extend(_coverage_lines(usage, show_analysis_limitations))
-    lines.extend(['', '## Architectural connections', '', '```mermaid'])
+        evidence_sections.extend(['', 'JPQL queries Java persistence entities rather than database tables.'])
+    lines.extend(['', '## Architectural Connections', '', '```mermaid'])
     if usage is not None or expanded:
         lines.extend(_usage_diagram_lines(module, ordered, usage, expanded))
     else:
@@ -585,7 +598,10 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                 f'    Rel(feign_{index}, external_{index}, '
                 '"Declared HTTP destination; runtime traffic unverified")',
             ])
-    lines.extend(['```', '', '## Limitations', '',
+    lines.extend(['```', '', '## Findings', *brief_sections,
+                  '', '## Adapter Review Guidance', *guidance_sections,
+                  '', '## Findings with Evidence', *evidence_sections,
+                  '', '## Limitations', '',
                   'ArchR analyzed Java source only within the targeted module\'s src/main/java; '
                   'it did not compile, run, or modify the module. Test sources, generated source '
                   'trees, and other modules are outside the analysis boundary. It did not resolve '
@@ -643,4 +659,7 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   'findings, rather than becoming untraced call sites. '
                   'Other HTTP and database libraries, indirect repository inheritance, custom client subclasses, '
                   'configuration resolution, and runtime behavior are outside this analysis.', ''])
+    if usage is not None:
+        lines.extend(_coverage_lines(usage, show_analysis_limitations))
+        lines.append('')
     return '\n'.join(lines)
