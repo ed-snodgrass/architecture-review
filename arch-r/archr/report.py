@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 from .discovery import FeignClient, Operation
 from .module import Module
+from .queries import QueryEvidence
 from .resolution import CallLink
 from .traversal import UsageTraversal
 
@@ -24,6 +25,18 @@ def _diagram(value: str) -> str:
 
 def _evidence(path: str, line: int) -> str:
     return _markdown(f'{path}:{line}')
+
+
+def _query_lines(query: QueryEvidence) -> list[str]:
+    """Render only retained bounded evidence, never invocation source text.
+
+    JDBC and repository findings share this path, including unresolved values.
+    Escape after truncation: Markdown entities do not consume preview characters.
+    """
+    value = (_markdown(query.preview) if query.preview is not None
+             else 'Unresolved query expression (not evaluated)')
+    return [f'- **{_markdown(query.language)}:** {value}. '
+            f'Evidence: {_evidence(query.source_path, query.line)}.']
 
 
 def _system_name(client: FeignClient) -> str:

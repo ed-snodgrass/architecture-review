@@ -57,6 +57,21 @@ def jdbc_query(source: str, invocation: Invocation,
                          argument[0].line if argument else invocation.line)
 
 
+def normalize_query_preview(literal: str) -> str:
+    """Bound decoded query text before it reaches any report section.
+
+    Python strings count Unicode code points, not UTF-8 bytes or UTF-16 code
+    units. Combine Java surrogate escapes first so they match literal source
+    characters. Keep only the preview in QueryEvidence, never the full query.
+    """
+    literal = re.sub(
+        r'[\ud800-\udbff][\udc00-\udfff]',
+        lambda match: chr(0x10000 + ((ord(match[0][0]) - 0xd800) << 10)
+                          + ord(match[0][1]) - 0xdc00), literal)
+    normalized = ' '.join(literal.split())
+    return normalized if len(normalized) <= 100 else normalized[:99] + '…'
+
+
 def query_preview(argument: list[Token]) -> str | None:
     """Read one literal only, with the same bounded preview for JDBC and JPA."""
     literal = _literal(argument)
@@ -84,19 +99,7 @@ def query_preview(argument: list[Token]) -> str | None:
         text = re.sub(r'\\\\|\\\r?\n',
                       lambda match: '' if '\n' in match[0] else match[0], text)
         literal = _literal([Token('"' + text + '"', token.start, token.end, token.line)])
-    preview = None
-    if literal is not None:
-        # Java Unicode escapes can represent one supplementary character as
-        # a UTF-16 surrogate pair. Count it as one Unicode character, just as
-        # when the same character appears directly in the source literal.
-        literal = re.sub(
-            r'[\ud800-\udbff][\udc00-\udfff]',
-            lambda match: chr(0x10000 + ((ord(match[0][0]) - 0xd800) << 10)
-                              + ord(match[0][1]) - 0xdc00), literal)
-        preview = ' '.join(literal.split())
-        if len(preview) > 100:
-            preview = preview[:99] + '…'
-    return preview
+    return normalize_query_preview(literal) if literal is not None else None
 
 
 def repository_queries(method: Method) -> tuple[QueryEvidence, ...]:
