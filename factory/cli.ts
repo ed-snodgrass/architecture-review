@@ -6,6 +6,14 @@ type Edge = { from: string; to: string; label?: string };
 type Outcome = Record<string, unknown>;
 type Config = { harness?: string; lens?: string };
 type Settings = { target: string; seed: string; line: string };
+type RepairFinding = {
+  id: string;
+  requirement: string;
+  evidence: string;
+  repair: string;
+  verification: string;
+  source?: string;
+};
 let activeLogFile: string | undefined;
 const args = process.argv.slice(2);
 const factory = dirname(resolve(process.argv[1]));
@@ -185,8 +193,30 @@ function route(name: string, result: Outcome): string {
 }
 let findings: unknown;
 let fanInResults: Outcome[] | undefined;
+let fanInTarget: string | undefined;
+let reviewFanIn = false;
+let repairContract: RepairFinding[] | undefined;
+let repairDispositions: unknown;
 let completingTask = false;
 let attempts = 0;
+function validateFanInOutcome(name: string, outcome: Outcome): RepairFinding[] {
+  if (!Array.isArray(outcome.findings)) fail(`The result of ${name} has no findings array`);
+  if (!Array.isArray(outcome.advisories)) fail(`The result of ${name} has no advisories array`);
+  const satisfied = Boolean(outcome.satisfied);
+  if (!satisfied && outcome.findings.length === 0) fail(`The ${name} rejected the work without findings`);
+  if (satisfied && outcome.findings.length > 0) fail(`The ${name} accepted the work with findings`);
+  for (const finding of outcome.findings) {
+    if (
+      typeof finding !== 'object'
+      || finding === null
+      || !['id', 'requirement', 'evidence', 'repair', 'verification'].every(
+        field => typeof (finding as Record<string, unknown>)[field] === 'string'
+          && Boolean((finding as Record<string, string>)[field].trim()),
+      )
+    ) fail(`The result of ${name} has an incomplete repair finding`);
+  }
+  return outcome.findings as RepairFinding[];
+}
 function prompt(name: string): string {
   const wanted = fields(name);
   const answer = wanted.length
@@ -201,18 +231,26 @@ function prompt(name: string): string {
     const testPolicy = hasTestAuthor
       ? ` Do not modify test files.${revisionRoute ? '\nIf the tests are missing or insufficient, leave them unchanged and return "tests_need_revision": true with the reason in "findings"; do not implement around a faulty test.' : ''}`
       : '';
-    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done.${testPolicy}${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nRecord each finding as a subtask of the current task and address it.`}\n${answer}`;
+    const feedback = repairContract
+      ? `\nThe fan-in review produced this repair contract:\n${JSON.stringify(repairContract)}\nAddress every finding together. In your final JSON, include a "repairs" array with one disposition for every finding id. Each disposition must contain "id", "status", "change", and "verification". Do not add these attempt-local findings to the plan.`
+      : findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nAddress each finding.`;
+    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done.${testPolicy}${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${feedback}\n${answer}`;
   }
   if (name === 'test_author') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nCreate objective tests for the first unfinished task when tests are applicable. If no tests are applicable, say so in your result. Do not implement the task.${findings === undefined ? '' : `\nThe previous machine reported these findings about the tests:\n${JSON.stringify(findings)}\nCorrect the tests and address each finding.`}\n${answer}`;
+  if (fanInResults && name === fanInTarget) return reviewFanIn
+    ? `Consider only these branch results and decide what happens next:\n${JSON.stringify(fanInResults)}\nConsolidate overlapping blocking findings into one repair contract. Preserve the strongest concrete evidence. Keep only explicit current-task violations, relevant test failures, and regressions in "findings"; put later-task work, speculative improvements, and preference-only refactors in "advisories".\nSet "satisfied" to false exactly when "findings" is non-empty. Each finding must contain "id", "requirement", "evidence", "repair", and "verification".\nFinish with one JSON line containing "satisfied", "findings", and "advisories".`
+    : `Consider only these branch results and decide what happens next:\n${JSON.stringify(fanInResults)}\n${answer}`;
   if (name === 'validator') {
     const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
     return `Run the current task's tests first. Confirm they pass, then review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
   }
   if (name.startsWith('reviewer_')) {
     const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
-    return `Review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
+    const repairReview = repairContract
+      ? `\nThis is a repair review. The previous repair contract was:\n${JSON.stringify(repairContract)}\nThe doer's reported dispositions were:\n${JSON.stringify(repairDispositions ?? [])}\nFor every previous finding id, return a verification with "resolved" or "unresolved" and concrete evidence. Then inspect the repaired work and relevant surrounding code for regressions and newly exposed violations of the current task. New blocking findings are allowed when they identify such a regression or an explicit current-task requirement.`
+      : '\nThis is the initial review, so return an empty "verification" array.';
+    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nReview only the first unfinished task using ${machineConfig(name).lens ?? ''} as your focus. The lens guides the review but is not an acceptance criterion by itself.\nA blocking finding must identify an explicit requirement of the current task, a relevant test failure, or a regression. Treat later plan tasks, speculative improvements, and preference-only refactors as advisories.\nThe current task's changed product files are:\n${work}${repairReview}\nDo not change any files.\nFinish with one JSON line containing "satisfied", "verification", "findings", and "advisories". Every blocking finding must contain "id", "requirement", "evidence", "repair", and "verification".`;
   }
-  if (fanInResults) return `Consider only these branch results and decide what happens next:\n${JSON.stringify(fanInResults)}\n${answer}`;
   return answer;
 }
 function execute(name: string, catalyst: string): Outcome {
@@ -280,28 +318,41 @@ async function orchestrate(): Promise<void> {
   while (machine !== 'finish') {
     if (machine === 'doer' && ++attempts > maxAttempts) fail('The task hit its limit');
     const testsBefore = machine === 'doer' && hasTestAuthor ? testSnapshot() : undefined;
+    const consumingFanIn = fanInResults !== undefined && machine === fanInTarget;
     const outcome = execute(machine, catalyst);
     if (testsBefore && testsChanged(testsBefore)) fail('The doer changed tests');
+    if (machine === 'doer' && repairContract) repairDispositions = outcome.repairs ?? [];
+    const consolidatedFindings = consumingFanIn && reviewFanIn
+      ? validateFanInOutcome(machine, outcome)
+      : undefined;
     const outgoing = edges.filter(edge => edge.from === machine);
     let next: string;
     if (outgoing.length > 1 && outgoing.every(edge => !edge.label)) {
       const branches = outgoing.map(edge => edge.to);
       fanInResults = await executeBranches(branches, machine);
       next = edges.find(edge => edge.from === branches[0])!.to;
+      fanInTarget = next;
+      reviewFanIn = branches.every(branch => branch.startsWith('reviewer_'));
       catalyst = branches.join(', ');
     } else {
       next = route(machine, outcome);
       catalyst = machine;
     }
-    if ('findings' in outcome && next !== 'planner') findings = outcome.findings;
+    if (consumingFanIn && reviewFanIn) {
+      repairContract = consolidatedFindings;
+      findings = consolidatedFindings;
+      repairDispositions = undefined;
+    } else if ('findings' in outcome && next !== 'planner') findings = outcome.findings;
     if (next === 'planner' && machine !== 'planner') {
-      commitWork(machine); completingTask = true; findings = undefined; attempts = 0;
+      commitWork(machine); completingTask = true; findings = undefined; repairContract = undefined; repairDispositions = undefined; attempts = 0;
     } else if (machine === 'test_author' && next === 'doer') {
       attempts = 0;
       completingTask = false;
       findings = undefined;
+      repairContract = undefined;
+      repairDispositions = undefined;
     } else if (machine === 'planner') completingTask = false;
-    if (fanInResults && !machine.startsWith('reviewer_') && outgoing.length <= 1) fanInResults = undefined;
+    if (consumingFanIn) { fanInResults = undefined; fanInTarget = undefined; reviewFanIn = false; }
     if (!quiet && machine === 'doer' && attempts > 1) appendLog(`[doer] Reattempt ${attempts}`);
     machine = next;
   }

@@ -5,6 +5,28 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+function repairFinding(id: string) {
+  return {
+    id,
+    requirement: `The current task requirement for ${id} must hold.`,
+    evidence: `Evidence for ${id}.`,
+    repair: `Repair ${id}.`,
+    verification: `Verify ${id}.`,
+  };
+}
+
+function synthesisResult(satisfied: boolean, ids: string[] = [], advisories: unknown[] = []) {
+  return { satisfied, findings: ids.map(repairFinding), advisories };
+}
+
+function recordedPrompts(workspace: string, name: string): string[] {
+  return readFileSync(join(workspace, `${name}-args-log`), 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map(line => (JSON.parse(line) as string[]).join('\n'));
+}
+
 Given('a new target', function() {
   this.target = join(this.workspace, 'target');
   mkdirSync(this.target);
@@ -296,6 +318,11 @@ Given('a plan with three tasks, none of them done', function() {
 Given('a plan with one task, not done', function () {
   mkdirSync(dirname(this.plan), { recursive: true });
   writeFileSync(this.plan, '- [ ] alpha\n');
+});
+
+Given('a plan with two tasks, neither done', function () {
+  mkdirSync(dirname(this.plan), { recursive: true });
+  writeFileSync(this.plan, '- [ ] alpha\n- [ ] beta\n');
 });
 
 Given('a plan whose first task is done', function() {
@@ -624,6 +651,7 @@ const workspace = process.env.FACTORY_TEST_WORKSPACE;
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
 fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
 fs.appendFileSync(path.join(workspace, 'doer-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
+const prompt = process.argv.slice(2).join('\n');
 if (process.env.FACTORY_TEST_DOER_CHANGES_TEST === '1') fs.writeFileSync('alpha.test.js', 'module.exports = false;\n');
 fs.writeFileSync('alpha.txt', 'alpha\n');
 const revisionMarker = path.join(workspace, 'doer-requested-test-revision');
@@ -707,6 +735,7 @@ fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
 fs.appendFileSync(path.join(workspace, 'doer-calls'), 'called\n');
 fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
 fs.appendFileSync(path.join(workspace, 'doer-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
+const prompt = process.argv.slice(2).join('\n');
 
 const plan = fs.readFileSync(process.env.FACTORY_TEST_PLAN, 'utf8');
 
@@ -722,7 +751,14 @@ if (process.env.FACTORY_TEST_DOER_PROSE === '1') {
 if (task) {
   const productFile = process.env.FACTORY_TEST_PRODUCT_FILE || task + '.txt';
   fs.writeFileSync(productFile, task + '\n');
-  console.log(JSON.stringify({ task }));
+  const repairIds = [...prompt.matchAll(/"id":"([^"]+)"/g)].map(match => match[1]);
+  const repairs = [...new Set(repairIds)].map(id => ({
+    id,
+    status: 'fixed',
+    change: 'Repaired ' + id,
+    verification: 'Checked ' + id,
+  }));
+  console.log(JSON.stringify({ task, repairs }));
 }
 `;
 
@@ -782,9 +818,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
 const name = path.basename(process.argv[1]).replace('fake-', '');
-fs.appendFileSync(path.join(workspace, name + '-calls'), 'called\n');
+const callsFile = path.join(workspace, name + '-calls');
+fs.appendFileSync(callsFile, 'called\n');
+const callCount = fs.readFileSync(callsFile, 'utf8').trim().split('\n').length;
 const argsFile = path.join(workspace, name + '-args');
 if (!fs.existsSync(argsFile)) fs.writeFileSync(argsFile, JSON.stringify(process.argv.slice(2)));
+fs.appendFileSync(path.join(workspace, name + '-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 if (process.env.FACTORY_TEST_REVIEWERS_WAIT === '1') {
   const begun = path.join(workspace, 'reviewers-begun');
   fs.appendFileSync(begun, name + '\n');
@@ -797,7 +836,10 @@ if (name === 'reviewer_2' && process.env.FACTORY_TEST_REVIEWER_2_PROSE === '1') 
   process.exit(0);
 }
 const findings = JSON.parse(process.env.FACTORY_TEST_REVIEWER_FINDINGS || '{}')[name];
-console.log(JSON.stringify({ satisfied: !findings, findings: findings ? [findings] : [] }));
+const configured = JSON.parse(process.env.FACTORY_TEST_REVIEWER_RESULTS || 'null');
+const results = configured && configured[name];
+const result = results && results[Math.min(callCount - 1, results.length - 1)];
+console.log(JSON.stringify(result || { satisfied: !findings, verification: [], findings: findings ? [findings] : [], advisories: [] }));
 `;
   for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
     const harness = join(this.workspace, 'agents', 'fake-' + reviewer);
@@ -818,12 +860,25 @@ const workspace = process.env.FACTORY_TEST_WORKSPACE;
 const calls = path.join(workspace, 'synthesiser-calls');
 fs.appendFileSync(calls, 'called\n');
 fs.writeFileSync(path.join(workspace, 'synthesiser-args'), JSON.stringify(process.argv.slice(2)));
+fs.appendFileSync(path.join(workspace, 'synthesiser-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 const count = fs.readFileSync(calls, 'utf8').trim().split('\n').length;
+const configured = JSON.parse(process.env.FACTORY_TEST_SYNTHESISER_RESULTS || 'null');
+if (configured) {
+  console.log(JSON.stringify(configured[Math.min(count - 1, configured.length - 1)]));
+  process.exit(0);
+}
 const reject = process.env.FACTORY_TEST_SYNTHESISER_REJECT_ALWAYS === '1'
   || (process.env.FACTORY_TEST_SYNTHESISER_REJECT_FIRST === '1' && count === 1);
 console.log(JSON.stringify({
   satisfied: !reject,
-  findings: reject ? ['The combined review found a problem.'] : [],
+  findings: reject ? [{
+    id: 'SYNTH-1',
+    requirement: 'The current task must have cohesive responsibilities.',
+    evidence: 'The combined review found a problem.',
+    repair: 'Separate the unrelated responsibilities.',
+    verification: 'Review the repaired responsibility boundary.',
+  }] : [],
+  advisories: [],
 }));
 `;
   writeFileSync(harness, script, { mode: 0o755 });
@@ -853,6 +908,122 @@ Given('the synthesiser is not satisfied the first time', function () {
   this.env.FACTORY_TEST_SYNTHESISER_REJECT_FIRST = '1';
 });
 
+Given('reviewers report overlapping blocking findings about the current task', function () {
+  this.env.FACTORY_TEST_REVIEWER_RESULTS = JSON.stringify({
+    reviewer_1: [{ satisfied: false, verification: [], findings: [{ ...repairFinding('SHARED-1'), evidence: 'First account of the same defect.' }], advisories: [] }],
+    reviewer_2: [{ satisfied: false, verification: [], findings: [{ ...repairFinding('SHARED-1'), evidence: 'DUPLICATE-DETAIL from another lens.' }], advisories: [] }],
+    reviewer_3: [{ satisfied: true, verification: [], findings: [], advisories: [] }],
+  });
+});
+
+Given('the synthesiser rejects with one consolidated repair finding', function () {
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    synthesisResult(false, ['SHARED-1']),
+    synthesisResult(true),
+  ]);
+});
+
+Given('the synthesiser answers that it is not satisfied with no findings', function () {
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    { satisfied: false, findings: [], advisories: [] },
+  ]);
+});
+
+Given('the synthesiser answers that it is satisfied with a blocking finding', function () {
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    synthesisResult(true, ['CONTRADICTION-1']),
+  ]);
+});
+
+Given('the synthesiser rejects the first attempt with findings {string} and {string}', function (first: string, second: string) {
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    synthesisResult(false, [first, second]),
+    synthesisResult(true),
+  ]);
+});
+
+Given('the synthesiser rejects the first attempt with the finding {string}', function (id: string) {
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    synthesisResult(false, [id]),
+    synthesisResult(true),
+  ]);
+});
+
+Given('the doer reports a repair disposition for every finding', function () {
+  // The fake doer derives dispositions from the repair contract in its prompt.
+});
+
+Given('the synthesiser accepts the second attempt', function () {
+  // The preceding rejection step configures acceptance on the second call.
+});
+
+Given('a reviewer resolves {string} but reports regression {string} on the second attempt', function (resolved: string, regression: string) {
+  this.env.FACTORY_TEST_REVIEWER_RESULTS = JSON.stringify({
+    reviewer_1: [
+      { satisfied: true, verification: [], findings: [], advisories: [] },
+      {
+        satisfied: false,
+        verification: [{ id: resolved, status: 'resolved', evidence: `${resolved} is fixed.` }],
+        findings: [repairFinding(regression)],
+        advisories: [],
+      },
+      { satisfied: true, verification: [{ id: regression, status: 'resolved', evidence: `${regression} is fixed.` }], findings: [], advisories: [] },
+    ],
+  });
+});
+
+Given('the synthesiser rejects the second attempt with the finding {string}', function (id: string) {
+  const results = JSON.parse(this.env.FACTORY_TEST_SYNTHESISER_RESULTS);
+  results[1] = synthesisResult(false, [id]);
+  results[2] = synthesisResult(true);
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify(results);
+});
+
+Given('the synthesiser accepts the third attempt', function () {
+  // The preceding second-rejection step configures acceptance on the third call.
+});
+
+Given('a reviewer says {string} is unresolved on the second attempt', function (id: string) {
+  this.env.FACTORY_TEST_REVIEWER_RESULTS = JSON.stringify({
+    reviewer_1: [
+      { satisfied: true, verification: [], findings: [], advisories: [] },
+      {
+        satisfied: false,
+        verification: [{ id, status: 'unresolved', evidence: `${id} still fails.` }],
+        findings: [repairFinding(id)],
+        advisories: [],
+      },
+      { satisfied: true, verification: [{ id, status: 'resolved', evidence: `${id} is fixed.` }], findings: [], advisories: [] },
+    ],
+  });
+});
+
+Given('a reviewer reports an optional refactor as an advisory', function () {
+  const advisory = { id: 'ADVICE-1', observation: 'An optional helper could be extracted.' };
+  this.env.FACTORY_TEST_REVIEWER_RESULTS = JSON.stringify({
+    reviewer_1: [{ satisfied: true, verification: [], findings: [], advisories: [advisory] }],
+  });
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    synthesisResult(true, [], [advisory]),
+  ]);
+});
+
+Given('the reviewers report no blocking findings', function () {
+  // Reviewers are satisfied by default; the advisory step configures no findings.
+});
+
+Given('the synthesiser rejects the first attempt at the first task with the finding {string}', function (id: string) {
+  this.env.FACTORY_TEST_SYNTHESISER_RESULTS = JSON.stringify([
+    synthesisResult(false, [id]),
+    synthesisResult(true),
+    synthesisResult(true),
+  ]);
+});
+
+Given('the synthesiser accepts every later attempt', function () {
+  // The preceding first-task rejection step configures all later calls as accepted.
+});
+
 Given('the second reviewer answers in prose, with no result', function () {
   this.env.FACTORY_TEST_REVIEWER_2_PROSE = '1';
 });
@@ -869,6 +1040,14 @@ Given("the reviewers' lens is testability", function () {
     const file = join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json');
     const configuration = JSON.parse(readFileSync(file, 'utf8'));
     writeFileSync(file, JSON.stringify({ ...configuration, lens: 'testability' }));
+  }
+});
+
+Given("the reviewers' lens is single responsibility", function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const file = join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json');
+    const configuration = JSON.parse(readFileSync(file, 'utf8'));
+    writeFileSync(file, JSON.stringify({ ...configuration, lens: 'single responsibility' }));
   }
 });
 
@@ -1350,6 +1529,130 @@ Then('every reviewer has been called once', function () {
     const calls = readFileSync(join(this.workspace, reviewer + '-calls'), 'utf8').trim().split('\n');
     assert.equal(calls.length, 1);
   }
+});
+
+Then(/^every reviewer has been called (twice|three times)$/, function (count: string) {
+  const expected = count === 'twice' ? 2 : 3;
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const calls = readFileSync(join(this.workspace, reviewer + '-calls'), 'utf8').trim().split('\n');
+    assert.equal(calls.length, expected);
+  }
+});
+
+Then('every reviewer was given the seed and the plan', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = recordedPrompts(this.workspace, reviewer)[0];
+    assert.match(prompt, new RegExp(this.seed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(prompt, new RegExp(this.plan.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+Then('every reviewer was told to review the first unfinished task', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    assert.match(recordedPrompts(this.workspace, reviewer)[0], /review only the first unfinished task/i);
+  }
+});
+
+Then('every reviewer was given the changed product files', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    assert.match(recordedPrompts(this.workspace, reviewer)[0], /changed product files[\s\S]*alpha\.txt/i);
+  }
+});
+
+Then('every reviewer was told that a blocking finding must identify a current-task requirement, test failure or regression', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = recordedPrompts(this.workspace, reviewer)[0];
+    assert.match(prompt, /blocking finding must identify an explicit requirement of the current task, a relevant test failure, or a regression/i);
+  }
+});
+
+Then('every reviewer was told to treat later-task work and optional refactors as advisory', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = recordedPrompts(this.workspace, reviewer)[0];
+    assert.match(prompt, /later plan tasks[\s\S]*preference-only refactors as advisories/i);
+  }
+});
+
+Then('the doer was given one finding with an id, requirement, evidence, repair and verification', function () {
+  const repairPrompt = recordedPrompts(this.workspace, 'doer')[1];
+  for (const field of ['id', 'requirement', 'evidence', 'repair', 'verification']) {
+    assert.match(repairPrompt, new RegExp(`"${field}"`));
+  }
+  assert.equal((repairPrompt.match(/"id":"SHARED-1"/g) ?? []).length, 1);
+});
+
+Then("the doer was not given the reviewers' duplicate findings", function () {
+  assert.doesNotMatch(recordedPrompts(this.workspace, 'doer')[1], /DUPLICATE-DETAIL/);
+});
+
+Then('it reports that the synthesiser rejected the work without findings', function () {
+  assert.match(this.result.stdout + this.result.stderr, /synthesiser rejected the work without findings/i);
+});
+
+Then('it reports that the synthesiser accepted the work with findings', function () {
+  assert.match(this.result.stdout + this.result.stderr, /synthesiser accepted the work with findings/i);
+});
+
+Then('every reviewer was given findings {string} and {string} on the second attempt', function (first: string, second: string) {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = recordedPrompts(this.workspace, reviewer)[1];
+    assert.ok(prompt, this.result.stdout + this.result.stderr);
+    assert.match(prompt, new RegExp(first));
+    assert.match(prompt, new RegExp(second));
+  }
+});
+
+Then("every reviewer was given the doer's repair dispositions on the second attempt", function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = recordedPrompts(this.workspace, reviewer)[1];
+    assert.match(prompt, /reported dispositions[\s\S]*"status":"fixed"/i);
+  }
+});
+
+Then('every reviewer was asked to verify {string} on the second attempt', function (id: string) {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const prompt = recordedPrompts(this.workspace, reviewer)[1];
+    assert.match(prompt, new RegExp(id));
+    assert.match(prompt, /for every previous finding id, return a verification/i);
+  }
+});
+
+Then('every reviewer was asked to inspect the repair for regressions and newly exposed current-task violations', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    assert.match(recordedPrompts(this.workspace, reviewer)[1], /inspect the repaired work[\s\S]*regressions and newly exposed violations/i);
+  }
+});
+
+Then('the doer was given {string} before the second attempt', function (id: string) {
+  assert.match(recordedPrompts(this.workspace, 'doer')[1], new RegExp(id));
+});
+
+Then('the doer was given {string} before the third attempt', function (id: string) {
+  assert.match(recordedPrompts(this.workspace, 'doer')[2], new RegExp(id));
+});
+
+Then('the doer was given {string} before the second and third attempts', function (id: string) {
+  const prompts = recordedPrompts(this.workspace, 'doer');
+  assert.match(prompts[1], new RegExp(id));
+  assert.match(prompts[2], new RegExp(id));
+});
+
+Then('the synthesiser was given the advisory', function () {
+  assert.match(recordedPrompts(this.workspace, 'synthesiser')[0], /ADVICE-1/);
+});
+
+Then('the synthesiser accepted with no findings', function () {
+  const log = readFileSync(join(this.workspace, 'runs', this.runName, 'log.md'), 'utf8');
+  assert.match(log, /\[synthesiser\].*"satisfied":true,"findings":\[\]/);
+});
+
+Then('the doer was given {string} on the repair attempt', function (id: string) {
+  assert.match(recordedPrompts(this.workspace, 'doer')[1], new RegExp(id));
+});
+
+Then('the doer was not given {string} while doing the second task', function (id: string) {
+  const prompts = recordedPrompts(this.workspace, 'doer');
+  assert.doesNotMatch(prompts[prompts.length - 1], new RegExp(id));
 });
 
 Then('the synthesiser has been called once', function () {

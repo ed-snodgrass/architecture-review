@@ -7,4 +7,9 @@ const shared = {
 module.exports = {
   default: { ...shared, tags: 'not @real-agent' },
   real: { ...shared, tags: '@real-agent' },
+  proposal: {
+    paths: ['proposed-features/**/*.feature'],
+    requireModule: ['tsx/cjs'],
+    require: ['steps/**/*.ts'],
+  },
 };
