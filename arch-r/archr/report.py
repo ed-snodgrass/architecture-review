@@ -626,8 +626,21 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                   'to be a sufficient architectural adapter.', '',
                   'Recognized declarations are Spring OpenFeign interfaces, interfaces directly '
                   'extending Spring Data JpaRepository, and explicitly typed JdbcTemplate, '
-                  'RestTemplate, and WebClient fields. Only the bounded supported operations '
-                  'and uninterrupted field-rooted WebClient expressions are recognized. '
+                  'RestTemplate, and WebClient fields, including constructor-injected fields. '
+                  'These Spring types require explicit import, package, or fully qualified type '
+                  'evidence; matching simple names and imports alone are insufficient. '
+                  'Parameters alone, locals, and bean factory methods do not create declarations. '
+                  'Repositories expose declared methods and the bounded common inherited '
+                  'persistence operations, not generated SQL. JdbcTemplate supports query, '
+                  'queryForObject, queryForList, update, execute, and batchUpdate. RestTemplate '
+                  'supports the specified verb-specific operations and exchange; HTTP method '
+                  'and destination evidence may remain unresolved independently. WebClient '
+                  'supports uninterrupted field-rooted verb/uri expressions with retrieve, '
+                  'exchangeToMono, or exchangeToFlux request operations; builder-only expressions '
+                  'are not request callers. Recognized fluent segments count as one call step, '
+                  'not separate untraced receiver sites; nested argument calls remain separate. '
+                  'Query expressions and destination uncertainty stay beside their integration '
+                  'findings, rather than becoming untraced call sites. '
                   'Other HTTP and database libraries, indirect repository inheritance, custom client subclasses, '
                   'configuration resolution, and runtime behavior are outside this analysis.', ''])
     return '\n'.join(lines)
