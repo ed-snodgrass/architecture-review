@@ -28,7 +28,7 @@ def _evidence(path: str, line: int) -> str:
     return _markdown(f'{path}:{line}')
 
 
-def _query_lines(query: QueryEvidence) -> list[str]:
+def _query_lines(query: QueryEvidence, *, cite: bool = True) -> list[str]:
     """Render only retained bounded evidence, never invocation source text.
 
     JDBC and repository findings share this path, including unresolved values.
@@ -36,8 +36,8 @@ def _query_lines(query: QueryEvidence) -> list[str]:
     """
     value = (_markdown(query.preview) if query.preview is not None
              else 'Unresolved query expression (not evaluated)')
-    return [f'- **{_markdown(query.language)}:** {value}. '
-            f'Evidence: {_evidence(query.source_path, query.line)}.']
+    citation = f' Evidence: {_evidence(query.source_path, query.line)}.' if cite else ''
+    return [f'- **{_markdown(query.language)}:** {value}.{citation}']
 
 
 def _system_name(client: FeignClient) -> str:
@@ -68,8 +68,11 @@ def _destination(client: FeignClient) -> tuple[str, str, str]:
 def _operation_lines(operation: Operation) -> list[str]:
     methods = operation.methods or ('HTTP method unspecified',)
     paths = operation.paths or ('path unspecified',)
-    evidence = '; '.join(_evidence(item.source_path, item.line)
-                         for item in operation.evidence)
+    # Discovery retains the shared type mapping first and the method mapping last.
+    # Cite the method mapping so sibling operations point to their own declarations.
+    location = operation.evidence[-1] if operation.evidence else None
+    evidence = (_evidence(location.source_path, location.line) if location
+                else 'No supported source location observed')
     return [f'- {_markdown(method + " " + path)} '
             f'(declared operation: {_markdown(operation.method_name)}). '
             f'Evidence: {evidence}.'
@@ -523,6 +526,23 @@ def _brief_card(number: int, identity: str, client: FeignClient | IntegrationFin
             f'[Evidence](#finding-{number}-evidence)', '']
 
 
+def _observed_call_lines(client: FeignClient | IntegrationFinding,
+                         usage: UsageTraversal | None) -> list[str]:
+    """Keep call evidence in its fixed subsection, including declaration-only reports."""
+    lines = ['', '#### Observed Call Chains', '']
+    if usage is None:
+        return lines + ['No supported call chains observed; no usage traversal was supplied.']
+    if not _client_chains(client, usage):
+        lines.append('No supported call chains observed within the supported analysis.')
+        diagnostics, interfaces = _relevant_diagnostics(client, usage)
+        lines.extend(_diagnostic_lines(diagnostics, interfaces))
+        return lines
+    # Retain existing path certainty and boundaries; path compaction is separate.
+    lines.extend(line for line in _usage_lines(client, usage)
+                 if not line.startswith('### '))
+    return lines
+
+
 def _integration_sections(number: int, finding: IntegrationFinding,
                           usage: UsageTraversal | None
                           ) -> tuple[list[str], list[str], list[str]]:
@@ -534,33 +554,33 @@ def _integration_sections(number: int, finding: IntegrationFinding,
     brief = _brief_card(number, identity, finding, usage)
     lines = [f'<a id="finding-{number}-evidence"></a>',
              *heading,
+             '#### Declaration', '',
              f'Declaration evidence: {_evidence(declaration.source_path, declaration.line)}',
-             '', '#### Operations and query evidence', '']
+             '', '#### Operations', '']
     if declaration.category == 'database':
         lines.append('No particular database, database name, or JDBC URL is established. '
                      'A JPA repository does not establish direct JDBC calls; '
                      'SQL is not inferred from repository method names.')
     if not finding.operations:
-        lines.append('No supported operation evidence was found; the declaration remains reported.')
+        lines.append('No supported operations observed within the supported analysis.')
     for operation in finding.operations:
         kind = ('Observed source operation call' if operation.has_supported_caller else
                 'Request-builder configuration only — no observed request operation'
                 if operation.invocation is not None else 'Declared query metadata')
-        citations = '; '.join(_evidence(item.source_path, item.line)
-                              for item in operation.evidence)
-        lines.append(f'- **{kind}:** {_markdown(operation.method_name)}. Evidence: {citations}.')
+        # Prefer the invocation for calls, or the query annotation for metadata.
+        location = operation.invocation or operation.query or next(iter(operation.evidence), None)
+        citation = (_evidence(location.source_path, location.line) if location
+                    else 'No supported source location observed')
+        lines.append(f'- **{kind}:** {_markdown(operation.method_name)}. Evidence: {citation}.')
         if declaration.category == 'HTTP':
             lines.append(f'  HTTP method: {_markdown(operation.http_method or "unresolved")}; '
                          f'{_markdown(operation.destination.label)}.')
-            for item in operation.destination.evidence:
-                lines.append(f'  Destination evidence: {_evidence(item.source_path, item.line)}.')
         if operation.query is not None:
-            lines.extend(_query_lines(operation.query))
+            lines.extend(_query_lines(operation.query, cite=False))
     if declaration.mechanism == 'Spring reactive HTTP':
         lines.append('A fluent request operation does not prove subscription or network execution. '
                      'Builder-only configuration does not establish a supported operation caller.')
-    if usage is not None:
-        lines.extend(_nested_finding_lines(_usage_lines(finding, usage)))
+    lines.extend(_observed_call_lines(finding, usage))
     guidance = [f'<a id="finding-{number}-guidance"></a>',
                 *heading, *_nested_finding_lines(_adapter_guidance_lines(finding, usage))]
     return brief, guidance, lines
@@ -615,17 +635,16 @@ def render_report(module: Module, clients: Iterable[FeignClient],
         _, confidence, reason = _destination(client)
         evidence_sections.extend([f'<a id="finding-{index}-evidence"></a>',
                                   *heading,
+                                  '#### Declaration', '',
                                   f'Client declaration evidence: {_evidence(client.source_path, client.line)}',
                                   f'Destination confidence: {confidence}. {reason}',
-                                  '', '#### HTTP operations (supporting detail)', ''])
+                                  '', '#### Operations', ''])
         if client.operations:
             for operation in client.operations:
                 evidence_sections.extend(_operation_lines(operation))
         else:
-            evidence_sections.append('No supported mapped HTTP operations were discovered in this interface; '
-                         'this does not prove that it has no operations.')
-        if usage is not None:
-            evidence_sections.extend(_nested_finding_lines(_usage_lines(client, usage)))
+            evidence_sections.append('No supported operations observed within the supported analysis.')
+        evidence_sections.extend(_observed_call_lines(client, usage))
         guidance_sections.extend([
             f'<a id="finding-{index}-guidance"></a>',
             *heading, *_nested_finding_lines(_adapter_guidance_lines(client, usage))])
