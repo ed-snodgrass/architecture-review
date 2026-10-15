@@ -148,7 +148,10 @@ class Gateway { Products products; String load() { return products.get(); } }
                                           invocation=invocation)
             combined = replace(possible, operations=(operation,))
             self.assertEqual(combined.supported_call_evidence, (citation,))
-            empty = replace(finding, chains=(replace(chain, steps=(), certainty='possible'),))
+            # Remove independently recorded operation calls as well as chain
+            # steps: either evidence dimension can establish a supported caller.
+            empty = replace(finding, operations=(),
+                            chains=(replace(chain, steps=(), certainty='possible'),))
             self.assertFalse(empty.has_supported_caller)
             self.assertEqual(empty.usage_certainty, UsageCertainty.NO_SUPPORTED_CALLER)
             self.assertEqual(empty.status_label,

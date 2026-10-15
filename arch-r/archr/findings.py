@@ -132,15 +132,16 @@ class IntegrationFinding:
 
 
 def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
-    """Retain declarations and attach supported repository/JDBC/HTTP source calls.
+    """Retain declarations and attach supported integration source calls.
 
     All fields of a repository type contribute to its one declaration finding.
     JDBC, RestTemplate and WebClient calls belong to their declaring field.
     WebClient configuration alone does not establish a supported caller.
     """
     declarations = discover_declarations(module)
-    usage = (trace_usage(module) if any(d.mechanism in ('Spring Data JPA', 'Spring JDBC', 'Spring HTTP', 'Spring reactive HTTP')
-                                       for d in declarations) else None)
+    # Feign and repositories are shared interface endpoints; library clients
+    # are field endpoints. All mechanisms consume the same bounded traversal.
+    usage = trace_usage(module) if declarations else None
     sources = None
     query_tokens = {}
 
@@ -230,7 +231,7 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
     findings = []
     for declaration in declarations:
         chains = (tuple(endpoint_chains.get(declaration.declaring_type, ()))
-                  if declaration.mechanism == 'Spring Data JPA' else
+                  if declaration.mechanism in ('OpenFeign', 'Spring Data JPA') else
                   tuple(field_chains.get((declaration.declaring_type,
                                           declaration.field_name,
                                           declaration.type_name), ()))
