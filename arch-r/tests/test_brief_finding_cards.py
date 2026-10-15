@@ -75,6 +75,54 @@ class Service { Client client; String run() { return client.get(null); } }
         self.assertIn('**Status:** No caller found', cards[1])
         self.assertIn('**Destination:** Unknown', cards[0])
 
+    def recommendation(self, card):
+        return card.split('**Adapter Recommendation:** ', 1)[1].split(' [Review guidance]', 1)[0]
+
+    def test_recommendation_names_direct_observed_method_and_conditional_review(self):
+        report = self.report('''package shop;
+import org.springframework.cloud.openfeign.FeignClient;
+@FeignClient("products") interface Client { String get(); }
+class Gateway { Client client; String fetch() { return client.get(); } }
+class Controller { Gateway gateway; String run() { return gateway.fetch(); } }
+''')
+        recommendation = self.recommendation(self.cards(report)[0])
+        self.assertEqual(recommendation,
+                         'Inspect shop.Gateway.fetch to determine whether it handles '
+                         'integration-specific failures or mixes integration details '
+                         'with module decisions.')
+        self.assertNotIn('Controller', recommendation)
+        self.assertNotRegex(recommendation, r'interface|wrapper|refactor|must|required')
+
+    def test_repository_recommendation_uses_observed_method_without_http_assumptions(self):
+        report = self.report('''package shop;
+import org.springframework.data.jpa.repository.JpaRepository;
+interface Orders extends JpaRepository<Order, Long> {}
+class Service { Orders orders; void store(Order order) { orders.save(order); } }
+''')
+        recommendation = self.recommendation(self.cards(report)[0])
+        self.assertIn('Inspect shop.Service.store to determine whether', recommendation)
+        self.assertIn('integration-specific failures', recommendation)
+        self.assertNotRegex(recommendation, r'HTTP|response|status code')
+
+    def test_no_recommendation_explains_unresolved_or_unavailable_caller_evidence(self):
+        report = self.report('''
+import org.springframework.cloud.openfeign.FeignClient;
+@FeignClient("products") interface Client { String get(String id); String get(Long id); }
+class Service { Client client; String run() { return client.get(null); } }
+''')
+        recommendation = self.recommendation(self.cards(report)[0])
+        self.assertEqual(recommendation,
+                         'No recommendation: the caller connection is unresolved, '
+                         'so ArchR cannot identify supported caller code to inspect.')
+        clients = extract_clients('''
+import org.springframework.cloud.openfeign.FeignClient;
+@FeignClient("products") interface Client {}
+''', 'src/main/java/Client.java')
+        module = Module(Path('/module'), Path('/module/src/main/java'), 'module')
+        card = self.cards(render_report(module, clients))[0]
+        self.assertIn('No recommendation: no usage traversal was supplied', card)
+        self.assertIn('ArchR cannot identify code to inspect.', card)
+
     def test_field_identity_distinguishes_same_typed_clients(self):
         report = self.report('''package shop;
 class Gateway {

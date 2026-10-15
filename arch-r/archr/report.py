@@ -474,8 +474,15 @@ def _brief_card(number: int, identity: str, client: FeignClient | IntegrationFin
     if chains:
         direct = chains[0].steps[0].link
         observed = _markdown(direct.caller_type + '.' + direct.caller_method.name)
-        recommendation = (f'Inspect {observed} for integration-specific handling or '
-                          'integration details mixed with module decisions.')
+        recommendation = (f'Inspect {observed} to determine whether it handles '
+                          'integration-specific failures or mixes integration details '
+                          'with module decisions.')
+    elif usage is None:
+        recommendation = ('No recommendation: no usage traversal was supplied, '
+                          'so ArchR cannot identify code to inspect.')
+    elif unresolved:
+        recommendation = ('No recommendation: the caller connection is unresolved, '
+                          'so ArchR cannot identify supported caller code to inspect.')
     else:
         recommendation = ('No recommendation: no supported caller was found, '
                           'so ArchR cannot identify code to inspect.')
