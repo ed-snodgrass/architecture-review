@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 from .indexing import Field, Invocation, Method, SourceIndex, index_module
 from .module import Module
+from .discovery import tokenize
+from .webclient import webclient_expression
 from .integrations import declarations_from_index, repository_types_from_index
 
 
@@ -71,12 +73,31 @@ def resolve_index(index: SourceIndex) -> Resolution:
     repositories = repository_types_from_index(index)
     library_fields = {(d.declaring_type, d.field_name): d.mechanism
                       for d in declarations_from_index(index)
-                      if d.mechanism in ('Spring JDBC', 'Spring HTTP')}
+                      if d.mechanism in ('Spring JDBC', 'Spring HTTP', 'Spring reactive HTTP')}
+    sources = dict(index.sources)
+    tokens = {}
     links, diagnostics = [], []
     for caller in index.types:
         fields = {field.name: field for field in caller.fields}
         for method in caller.methods:
+            expressions = {}
+            segments = set()
             for invocation in method.invocations:
+                field_name = invocation.receiver.removeprefix('this.')
+                if (invocation.field_receiver and not invocation.explicit_type_arguments and
+                        library_fields.get((caller.qualified_name, field_name)) == 'Spring reactive HTTP' and
+                        invocation.source_path in sources):
+                    path = invocation.source_path
+                    if path not in tokens:
+                        tokens[path] = tokenize(sources[path])
+                    expression = webclient_expression(sources[path], invocation, tokens[path])
+                    if expression is not None:
+                        expressions[invocation.site_identity] = expression
+                        segments.update(expression.segment_offsets)
+            for invocation in method.invocations:
+                if (invocation.receiver == '<chained expression>' and
+                        invocation.source_offset in segments):
+                    continue
                 receiver = invocation.receiver
                 # Same-class helpers are deliberately not followed.
                 if receiver == 'this':
@@ -99,6 +120,19 @@ def resolve_index(index: SourceIndex) -> Resolution:
                                'local, parameter and other receiver forms are not followed.')
                     continue
                 mechanism = library_fields.get((caller.qualified_name, field.name))
+                if mechanism == 'Spring reactive HTTP':
+                    expression = expressions.get(invocation.site_identity)
+                    if expression is not None:
+                        if expression.request_operation is not None:
+                            endpoint = Method(expression.request_operation, invocation.argument_count,
+                                              field.source_path, field.line)
+                            links.append(CallLink(caller.qualified_name, method, field,
+                                                  field.type_name, endpoint, invocation))
+                        # Configuration is not a request caller or a resolution gap.
+                        continue
+                    unresolved('unsupported-operation',
+                               f'{invocation.method_name} is not a supported WebClient expression root.')
+                    continue
                 if mechanism is not None:
                     supported = (JDBC_OPERATIONS if mechanism == 'Spring JDBC'
                                  else REST_OPERATIONS)

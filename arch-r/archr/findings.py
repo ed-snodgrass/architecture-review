@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .discovery import read_java_sources, tokenize
-from .indexing import Invocation
+from .indexing import Invocation, index_module
+from .webclient import webclient_expression
 from .queries import QueryEvidence, jdbc_query
 from .http import rest_facts, destination_kind
 from .integrations import IntegrationDeclaration, discover_declarations
@@ -134,11 +135,11 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
     """Retain declarations and attach supported repository/JDBC/HTTP source calls.
 
     All fields of a repository type contribute to its one declaration finding.
-    JdbcTemplate and RestTemplate calls belong to their declaring field. Other
-    mechanisms retain their inventory until their recognizers attach evidence.
+    JDBC, RestTemplate and WebClient calls belong to their declaring field.
+    WebClient configuration alone does not establish a supported caller.
     """
     declarations = discover_declarations(module)
-    usage = (trace_usage(module) if any(d.mechanism in ('Spring Data JPA', 'Spring JDBC', 'Spring HTTP')
+    usage = (trace_usage(module) if any(d.mechanism in ('Spring Data JPA', 'Spring JDBC', 'Spring HTTP', 'Spring reactive HTTP')
                                        for d in declarations) else None)
     sources = None
     query_tokens = {}
@@ -163,6 +164,42 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
                                  invocation=invocation, http_method=verb,
                                  destination=destination)
 
+    def web_operation(invocation: Invocation) -> OperationEvidence:
+        source, tokens = source_for(invocation)
+        expression = webclient_expression(source, invocation, tokens)
+        return OperationEvidence(
+            expression.request_operation or invocation.method_name,
+            tuple(dict.fromkeys(SourceEvidence(invocation.source_path, line)
+                                for line in (invocation.line, expression.request_line)
+                                if line is not None)),
+            invocation=invocation,
+            is_request_operation=expression.request_operation is not None,
+            http_method=expression.http_method,
+            destination=DestinationEvidence(
+                DestinationCertainty(destination_kind(expression.destination)),
+                expression.destination,
+                (SourceEvidence(invocation.source_path, expression.destination_line),)))
+
+    # Builder-only expressions retain configuration facts without becoming callers.
+    web_invocations = {}
+    if any(d.mechanism == 'Spring reactive HTTP' for d in declarations):
+        index = index_module(module)
+        for declaration in declarations:
+            if declaration.mechanism != 'Spring reactive HTTP':
+                continue
+            calls = []
+            for owner in index.types:
+                if owner.qualified_name != declaration.declaring_type:
+                    continue
+                for method in owner.methods:
+                    for invocation in method.invocations:
+                        if (invocation.field_receiver and not invocation.explicit_type_arguments and
+                                invocation.receiver.removeprefix('this.') == declaration.field_name):
+                            source, tokens = source_for(invocation)
+                            if webclient_expression(source, invocation, tokens) is not None:
+                                calls.append(invocation)
+            web_invocations[(declaration.declaring_type, declaration.field_name)] = calls
+
     def query_for(invocation: Invocation) -> QueryEvidence:
         # Tokenize only files with supported JDBC calls, once per source file.
         # Declaration-only fields and unrelated production sources need no SQL
@@ -186,13 +223,16 @@ def discover_findings(module: Module) -> tuple[IntegrationFinding, ...]:
                   tuple(field_chains.get((declaration.declaring_type,
                                           declaration.field_name,
                                           declaration.type_name), ()))
-                  if declaration.mechanism in ('Spring JDBC', 'Spring HTTP') else ())
+                  if declaration.mechanism in ('Spring JDBC', 'Spring HTTP', 'Spring reactive HTTP') else ())
         # Upstream branches can share one integration call. Identify that call
         # by its source site, not by the route or the synthetic library endpoint.
         invocations = {chain.steps[0].link.invocation.site_identity:
                        chain.steps[0].link.invocation
                        for chain in chains if chain.steps}
-        operations = tuple(rest_operation(invocation)
+        for invocation in web_invocations.get((declaration.declaring_type, declaration.field_name), ()):
+            invocations[invocation.site_identity] = invocation
+        operations = tuple(web_operation(invocation)
+                           if declaration.mechanism == 'Spring reactive HTTP' else rest_operation(invocation)
                            if declaration.mechanism == 'Spring HTTP' else OperationEvidence(
             invocation.method_name,
             (SourceEvidence(invocation.source_path, invocation.line),),

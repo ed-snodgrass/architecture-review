@@ -111,7 +111,7 @@ def trace_usage(module: Module,
     clients = {item.qualified_name for item in index.types if item.feign} | repositories
     library_fields = {(d.declaring_type, d.field_name)
                       for d in declarations_from_index(index)
-                      if d.mechanism in ('Spring JDBC', 'Spring HTTP')}
+                      if d.mechanism in ('Spring JDBC', 'Spring HTTP', 'Spring reactive HTTP')}
     incoming = {}
     roots = []
     for link in resolution.links:

@@ -5,7 +5,7 @@ selecting methods, inferring runtime wiring, or treating declarations as use.
 The lexer and source boundary are shared with Feign discovery.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 
 from .discovery import (Token, _annotation, _balanced_end, extract_clients,
@@ -90,6 +90,7 @@ class SourceIndex:
     # Include unindexed enums/records for exact library-type exclusion without
     # extending method resolution to those source forms.
     declared_type_names: tuple[str, ...] = ()
+    sources: tuple[tuple[str, str], ...] = field(default=(), compare=False, repr=False)
 
 
 _IDENTIFIER = re.compile(r'[A-Za-z_$][\w$]*\Z')
@@ -770,7 +771,8 @@ def index_source(source: str, source_path: str) -> SourceIndex:
     declared_names = tuple(sorted(
         package + '.' + name if package else name
         for name in _compilation_unit_types(tokens)))
-    return SourceIndex(tuple(_extract(source, source_path)), declared_names)
+    return SourceIndex(tuple(_extract(source, source_path)), declared_names,
+                       ((source_path, source),))
 
 
 def index_module(module: Module) -> SourceIndex:
@@ -779,4 +781,5 @@ def index_module(module: Module) -> SourceIndex:
                   for path, source in read_java_sources(module))
     return SourceIndex(tuple(t for unit in units for t in unit.types),
                        tuple(sorted({name for unit in units
-                                     for name in unit.declared_type_names})))
+                                     for name in unit.declared_type_names})),
+                       tuple(item for unit in units for item in unit.sources))

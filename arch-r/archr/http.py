@@ -44,7 +44,15 @@ def rest_facts(source, invocation, *, tokens=None):
     destination = _literal(args[0])
     line = args[0][0].line if args[0] else invocation.line
     if invocation.method_name == 'exchange' and len(args) > 1:
-        parts = ''.join(t.text for t in args[1]).split('.')
+        verb = explicit_http_method(source, invocation, args[1], tokens=tokens)
+    return verb, destination, line
+
+
+def explicit_http_method(source, invocation, argument, *, tokens=None):
+    """Resolve only explicit, unshadowed Spring HttpMethod constants."""
+    tokens = tokenize(source) if tokens is None else tokens
+    if argument:
+        parts = ''.join(t.text for t in argument).split('.')
         if parts[-1] in VERBS and len(parts) > 1:
             name = '.'.join(parts[:-1])
             imports = set()
@@ -84,8 +92,8 @@ def rest_facts(source, invocation, *, tokens=None):
                      (name == 'HttpMethod' and 'HttpMethod' not in value_names and
                       not local_http_method and not conflicts and
                       (HTTP_METHOD in imports or package == 'org.springframework.http')))):
-                verb = parts[-1]
-    return verb, destination, line
+                return parts[-1]
+    return None
 
 
 def destination_kind(value):
