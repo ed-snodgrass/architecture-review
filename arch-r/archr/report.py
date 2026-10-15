@@ -449,6 +449,46 @@ def _coverage_lines(usage: UsageTraversal, show_details: bool) -> list[str]:
     return lines
 
 
+def _brief_card(number: int, identity: str, client: FeignClient | IntegrationFinding,
+                usage: UsageTraversal | None) -> list[str]:
+    """Summarize integration identity without leaking supporting evidence into cards."""
+    chains = _client_chains(client, usage) if usage is not None else ()
+    supported = bool(chains) or (isinstance(client, IntegrationFinding)
+                                 and client.has_supported_caller)
+    unresolved = (any(_relevant_diagnostics(client, usage))
+                  if usage is not None else False)
+    status = ('Caller found' if supported else
+              'Caller unresolved' if unresolved else 'No caller found')
+    if isinstance(client, FeignClient):
+        value = client.url or client.url_expression
+        destination = (_destination(client)[0] if value else 'Unknown')
+        system = (client.name or (f'Unresolved: {client.name_expression}'
+                                 if client.name_expression else 'Unknown'))
+        mechanism = 'OpenFeign HTTP client'
+    else:
+        destination = ('Unknown' if client.destination.certainty == DestinationCertainty.UNKNOWN
+                       else client.destination.label)
+        # A repository or a client field does not identify an external system.
+        system = 'Unknown'
+        mechanism = client.declaration.mechanism
+    if chains:
+        direct = chains[0].steps[0].link
+        observed = _markdown(direct.caller_type + '.' + direct.caller_method.name)
+        recommendation = (f'Inspect {observed} for integration-specific handling or '
+                          'integration details mixed with module decisions.')
+    else:
+        recommendation = ('No recommendation: no supported caller was found, '
+                          'so ArchR cannot identify code to inspect.')
+    return ['', f'### Finding {number}: {_markdown(identity)}', '',
+            f'- **Destination:** {_markdown(destination)}',
+            f'- **Status:** {status}',
+            f'- **External system:** {_markdown(system)}',
+            f'- **Mechanism:** {_markdown(mechanism)}',
+            f'- **Adapter Recommendation:** {recommendation} '
+            f'[Review guidance](#finding-{number}-guidance)',
+            f'[Evidence](#finding-{number}-evidence)', '']
+
+
 def _integration_sections(number: int, finding: IntegrationFinding,
                           usage: UsageTraversal | None
                           ) -> tuple[list[str], list[str], list[str]]:
@@ -456,27 +496,16 @@ def _integration_sections(number: int, finding: IntegrationFinding,
     identity = declaration.declaring_type
     if declaration.field_name:
         identity += '.' + declaration.field_name
-    descriptions = {
-        'Spring Data JPA': 'JPA persistence access through a directly declared repository interface',
-        'Spring JDBC': 'SQL access through a typed JdbcTemplate field',
-        'Spring HTTP': 'HTTP access through a typed RestTemplate field',
-        'Spring reactive HTTP': 'Reactive HTTP access through a typed WebClient field',
-    }
     heading = ['', f'### Finding {number}: {_markdown(identity)}', '']
-    lines = [*heading,
-             f'- **Mechanism:** {_markdown(declaration.mechanism)} — '
-             f'{descriptions[declaration.mechanism]}.',
-             f'- **Status:** {finding.status_label}',
-             f'- **Declaration evidence:** {_evidence(declaration.source_path, declaration.line)}',
-             f'- **Destination:** {_markdown(finding.destination.label)}',
-             'Declaration evidence, destination certainty, and usage certainty are separate. '
-             'A source invocation does not prove runtime execution.']
+    brief = _brief_card(number, identity, finding, usage)
+    lines = [f'<a id="finding-{number}-evidence"></a>',
+             *heading,
+             f'Declaration evidence: {_evidence(declaration.source_path, declaration.line)}',
+             '', '#### Operations and query evidence', '']
     if declaration.category == 'database':
         lines.append('No particular database, database name, or JDBC URL is established. '
                      'A JPA repository does not establish direct JDBC calls; '
                      'SQL is not inferred from repository method names.')
-    brief = lines
-    lines = [*heading, '#### Operations and query evidence', '']
     if not finding.operations:
         lines.append('No supported operation evidence was found; the declaration remains reported.')
     for operation in finding.operations:
@@ -498,7 +527,8 @@ def _integration_sections(number: int, finding: IntegrationFinding,
                      'Builder-only configuration does not establish a supported operation caller.')
     if usage is not None:
         lines.extend(_nested_finding_lines(_usage_lines(finding, usage)))
-    guidance = [*heading, *_nested_finding_lines(_adapter_guidance_lines(finding, usage))]
+    guidance = [f'<a id="finding-{number}-guidance"></a>',
+                *heading, *_nested_finding_lines(_adapter_guidance_lines(finding, usage))]
     return brief, guidance, lines
 
 
@@ -546,24 +576,15 @@ def render_report(module: Module, clients: Iterable[FeignClient],
                       'A domain-facing interface expresses what the calling code needs '
                       'without exposing HTTP client or persistence details. The guidance below is a '
                       'suggestion, not an observed fact or a required change.'])
-    for index, client in enumerate(ordered, 1):
-        system = _markdown(_system_name(client))
-        destination, confidence, reason = _destination(client)
-        heading = ['', f'### Finding {index}: {system}', '']
-        brief_sections.extend([*heading,
-                      f'{name} makes an outbound HTTP connection to {system} '
-                      f'through its {_markdown(client.interface_name)} Feign integration point.', '',
-                      f'- **External system:** {system}',
-                      f'- **Destination:** {_markdown(destination)}' +
-                      (' — Destination unknown' if not client.url else ''),
-                      f'- **Confidence:** {confidence}. {reason}',
-                      f'- **Client declaration evidence:** {_evidence(client.source_path, client.line)}',
-                      ('- **Status:** Declared integration — Supported source operation caller found'
-                       if usage is not None and _client_chains(client, usage) else
-                       '- **Status:** Declared integration — No supported caller found'),
-                      'This is a source declaration, not proof of execution. Destination confidence '
-                      'does not weaken declaration evidence or determine usage certainty.'])
-        evidence_sections.extend([*heading, '#### HTTP operations (supporting detail)', ''])
+    for index, (client, identity) in enumerate(zip(ordered, _feign_labels(ordered)), 1):
+        heading = ['', f'### Finding {index}: {_markdown(identity)}', '']
+        brief_sections.extend(_brief_card(index, identity, client, usage))
+        _, confidence, reason = _destination(client)
+        evidence_sections.extend([f'<a id="finding-{index}-evidence"></a>',
+                                  *heading,
+                                  f'Client declaration evidence: {_evidence(client.source_path, client.line)}',
+                                  f'Destination confidence: {confidence}. {reason}',
+                                  '', '#### HTTP operations (supporting detail)', ''])
         if client.operations:
             for operation in client.operations:
                 evidence_sections.extend(_operation_lines(operation))
@@ -573,6 +594,7 @@ def render_report(module: Module, clients: Iterable[FeignClient],
         if usage is not None:
             evidence_sections.extend(_nested_finding_lines(_usage_lines(client, usage)))
         guidance_sections.extend([
+            f'<a id="finding-{index}-guidance"></a>',
             *heading, *_nested_finding_lines(_adapter_guidance_lines(client, usage))])
     for index, finding in enumerate(expanded, len(ordered) + 1):
         brief, guidance, evidence = _integration_sections(index, finding, usage)
