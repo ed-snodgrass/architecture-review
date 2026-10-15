@@ -1,7 +1,7 @@
 import { After, Given, When, Then, IWorld } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import { exec, execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -56,7 +56,7 @@ Given('the target folder does not exist', function () {
 
 Given('the target is outside any Git repository', function () {
   const previousTarget = this.target;
-  this.standaloneTarget = mkdtempSync(join(tmpdir(), 'factory-target-'));
+  this.standaloneTarget = realpathSync(mkdtempSync(join(tmpdir(), 'factory-target-')));
   cpSync(previousTarget, this.standaloneTarget, { recursive: true });
   this.target = this.standaloneTarget;
   if (this.runName && this.runs?.[this.runName]) this.runs[this.runName].target = this.target;
@@ -87,7 +87,7 @@ Then('the target is a Git repository', function () {
 });
 
 Given('a copy of the factory', function () {
-  this.workspace = mkdtempSync(join(tmpdir(), 'factory-'));
+  this.workspace = realpathSync(mkdtempSync(join(tmpdir(), 'factory-')));
 
   for (const file of ['cli.ts', 'run', 'package.json']) {
     copyFileSync(resolve(file), join(this.workspace, file));
