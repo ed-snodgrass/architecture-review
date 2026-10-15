@@ -249,60 +249,87 @@ def _usage_lines(client: FeignClient | IntegrationFinding, usage: UsageTraversal
 
 def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
                             usage: UsageTraversal | None) -> list[str]:
-    """Suggest reviews only for supported arrangements, never architectural verdicts."""
-    lines = ['', '### Where an adapter could fit', '']
+    """Explain conditional reviews, without inferring behavior or adapter shape."""
+    lines = ['', '### Review conditions', '']
     if usage is None:
-        return [*lines, 'No usage traversal was supplied; no specific adapter placement '
-                'recommendation can be made from this evidence.']
+        return [*lines, 'No usage traversal was supplied, so ArchR cannot identify '
+                'code to review. No recommendation or example is provided.']
     chains = _client_chains(client, usage)
-    expanded = isinstance(client, IntegrationFinding)
-    details = ('integration details' if expanded else 'HTTP details')
-    dependency = ('declared integration' if expanded else 'Feign dependency')
     if not chains:
-        lines.append('No supported caller was found within the analysis boundary. '
-                     'No specific adapter placement recommendation can be made from '
-                     f'this evidence; the {dependency} remains reported.')
-        return lines
+        diagnostics, interfaces = _relevant_diagnostics(client, usage)
+        reason = ('The caller connection is unresolved; no supported caller was '
+                  'established within the analysis boundary.' if diagnostics or interfaces
+                  else 'No supported caller was found within the analysis boundary.')
+        return [*lines, reason + ' ArchR cannot identify code to review, so no '
+                'recommendation or example is provided.']
 
-    # Repeated methods and call sites keep their evidence above, but need not
-    # repeat identical placement advice. Preserve the traversal's stable order.
-    suggestions = []
+    database = (isinstance(client, IntegrationFinding)
+                and client.declaration.category == 'database')
+    # Keep distinct possible routes conditional, but do not repeat the same
+    # direct method's educational examples for every upstream path/operation.
+    seen = set()
     for chain in chains:
-        direct = _markdown(chain.steps[0].link.caller_type)
-        if expanded:
-            declaration = client.declaration
-            client_name = _markdown(declaration.declaring_type + (
-                '.' + declaration.field_name if declaration.field_name else ''))
+        link = chain.steps[0].link
+        connections = tuple(step.interface_connection for step in reversed(chain.steps)
+                            if step.interface_connection)
+        key = (link.caller_type, link.caller_method, chain.certainty, connections)
+        if key in seen:
+            continue
+        seen.add(key)
+        caller = _markdown(link.caller_type + '.' + link.caller_method.name)
+        target = _markdown(link.target_type + '.' + link.target_method.name)
+        lines.extend(['', f'#### Review {caller}', ''])
+        if chain.certainty == 'possible':
+            lines.append('This route is possible, not confirmed; the following review '
+                         'applies only if the connection is verified.')
+        for connection in connections:
+            lines.append('First verify that runtime wiring connects '
+                         f'{_markdown(connection.interface_type.qualified_name)} to '
+                         f'{_markdown(connection.implementation_type.qualified_name)}; '
+                         'this interface connection remains possible.')
+        lines.append(f'Inspect {caller}, the observed direct caller of {target}, '
+                     'for the following conditions; ArchR has not established '
+                     'that any of them occurs.')
+        if database:
+            conditions = [
+                ('Interpreting persistence results',
+                 'Check whether this method translates stored fields or query results '
+                 'into meaning used by this module.',
+                 ['boolean eligible = storedStatus.equals("ACTIVE");']),
+                ('Handling integration-specific failures',
+                 'Check whether this method directly reacts to SQL errors, '
+                 'persistence-library exceptions, or persistence retry rules.',
+                 ['if (sqlState.equals("40001")) {', '    retry = true;', '}']),
+                ('Mixing integration details with business decisions',
+                 'Check whether the same method both communicates with the database '
+                 'and decides what the module should do.',
+                 ['// After the persistence call in this method:',
+                  'if (storedQuantity > requestedQuantity) {',
+                  '    orderAccepted = true;', '}']),
+            ]
         else:
-            client_name = _markdown(chain.client_type)
-        conditions = []
-        for step in reversed(chain.steps):
-            connection = step.interface_connection
-            if connection:
-                conditions.append(
-                    f'verify that runtime wiring connects '
-                    f'{_markdown(step.link.caller_type)} through '
-                    f'{_markdown(connection.interface_type.qualified_name)} to '
-                    f'{_markdown(connection.implementation_type.qualified_name)}')
-        condition = ('First, ' + '; '.join(conditions) + '. '
-                     'If this possible wiring is confirmed, the following review applies. '
-                     if conditions else '')
-        if len(chain.steps) > 1:
-            upstream = _markdown(chain.steps[-1].link.caller_type)
-            advice = (f'{direct}, between {upstream} and {client_name}, is a candidate '
-                      'adapter location. Review whether its interface expresses the '
-                      f'calling code\'s needs and keeps {details} out of calling code. '
-                      'Wrapping an integration alone does not establish adequate isolation.')
-        else:
-            advice = (f'Review whether {direct}, which calls {client_name} directly, '
-                      'also handles business decisions. If so, a domain-facing interface '
-                      f'between that calling code and the {dependency} could isolate '
-                      f'external-service and {details}. The direct caller may itself '
-                      'serve as an adapter; direct use alone is not an architectural defect.')
-        suggestion = '- **Suggestion:** ' + condition + advice
-        if suggestion not in suggestions:
-            suggestions.append(suggestion)
-    lines.extend(suggestions)
+            conditions = [
+                ('Interpreting a client response',
+                 'Check whether this method translates external fields, statuses, '
+                 'or representations into meaning used by this module.',
+                 ['boolean available = externalStatus.equals("AVAILABLE");']),
+                ('Handling integration-specific failures',
+                 'Check whether this method directly reacts to HTTP status codes, '
+                 'timeouts, client-library exceptions, or retry rules.',
+                 ['if (httpStatus == 503) {', '    retry = true;', '}']),
+                ('Mixing integration details with business decisions',
+                 'Check whether the same method both communicates with the '
+                 'dependency and decides what the module should do.',
+                 ['// After the client call in this method:',
+                  'if (externalQuantity > requestedQuantity) {',
+                  '    orderAccepted = true;', '}']),
+            ]
+        for title, explanation, example in conditions:
+            lines.extend(['', f'**{title}**', '', explanation, '',
+                          f'Illustrative only — if your code looks like this in {caller}: '
+                          'ArchR did not establish this behavior. These Java statements '
+                          'use hypothetical local values, not a reconstruction of source.',
+                          '', '```java', *example, '```'])
     return lines
 
 
@@ -580,9 +607,8 @@ def render_report(module: Module, clients: Iterable[FeignClient],
     if usage is not None and total:
         guidance_sections.extend(['', 'An adapter is code that keeps the details of communicating '
                       'with an external service separate from the module\'s own work. '
-                      'A domain-facing interface expresses what the calling code needs '
-                      'without exposing HTTP client or persistence details. The guidance below is a '
-                      'suggestion, not an observed fact or a required change.'])
+                      'The guidance below identifies conditions to inspect, not observed '
+                      'behavior, a required change, or a proposed implementation.'])
     for index, (client, identity) in enumerate(zip(ordered, _feign_labels(ordered)), 1):
         heading = ['', f'### Finding {index}: {_markdown(identity)}', '']
         brief_sections.extend(_brief_card(index, identity, client, usage))

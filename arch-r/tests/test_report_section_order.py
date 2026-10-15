@@ -48,8 +48,8 @@ interface Orders extends org.springframework.data.jpa.repository.JpaRepository<O
         self.assertEqual(titles[0], titles[2])
         self.assertIn('Found 4 integration declarations: 2 HTTP and 2 database.',
                       sections['Summary'])
-        self.assertIn('Where an adapter could fit', sections['Adapter Review Guidance'])
-        self.assertNotIn('Where an adapter could fit', sections['Findings with Evidence'])
+        self.assertIn('Review conditions', sections['Adapter Review Guidance'])
+        self.assertNotIn('Review conditions', sections['Findings with Evidence'])
         self.assertNotIn('Operations and query evidence', sections['Findings'])
         self.assertIn('GET /product', sections['Findings with Evidence'])
         self.assertEqual(report.count('```mermaid'), 1)
@@ -90,8 +90,8 @@ class Service {
             self.assertNotIn('### Untraced call sites', default)
             self.assertIn('### Untraced call sites', detailed.split('## Limitations\n')[1])
             self.assertIn('Source calls', sections['Findings with Evidence'])
-            self.assertIn('**Suggestion:**', sections['Adapter Review Guidance'])
-            self.assertNotIn('**Suggestion:**', sections['Findings'])
+            self.assertIn('**Interpreting a client response**', sections['Adapter Review Guidance'])
+            self.assertNotIn('**Interpreting a client response**', sections['Findings'])
             self.assertEqual(java.read_text().count('request.unknown()'), 1)
 
 
