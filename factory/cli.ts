@@ -1,6 +1,6 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 
 type Edge = { from: string; to: string; label?: string };
 type Outcome = Record<string, unknown>;
@@ -47,7 +47,6 @@ Arguments:
   --harness <command>          Planner harness; default: pi.
   --<machine>-harness <command> Machine-specific harness override; default: pi
                                unless the machine configuration names one.
-  --validator-lens <lens>      Validator lens; default: configured lens.
   --max-attempts <number>      Maximum doer attempts; default: 3.
   --quiet                      Disable run logging; logging is enabled by default.
   --check-assembly-line        Validate an assembly line without running it.
@@ -127,6 +126,20 @@ for (const name of new Set(edges.map(edge => edge.from))) {
 }
 if (checking) { console.log('Assembly line accepted'); process.exit(0); }
 
+for (const name of new Set(edges.flatMap(edge => [edge.from, edge.to]))) {
+  if (name === 'start' || name === 'finish') continue;
+
+  const directory = resolve(lineDirectory, '.machines', name);
+  const hasLogin =
+    existsSync(resolve(directory, 'auth.json'))
+    || existsSync(resolve(directory, '.credentials.json'));
+  const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+
+  if (!hasLogin && !hasApiKey) {
+    fail(`The ${name} cannot sign in`);
+  }
+}
+
 mkdirSync(runDirectory!, { recursive: true });
 if (!saved) writeFileSync(settingsFile!, JSON.stringify({ target, seed, line: lineName }, null, 2) + '\n');
 const plan = resolve(runDirectory!, 'plan.md');
@@ -137,8 +150,7 @@ if (spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: target }).status !
 function machineConfig(name: string): Required<Pick<Config, 'harness'>> & Config {
   const stored = storedConfig(name)!;
   const oldHarness = option(`--${name}-harness`) ?? (name === 'planner' ? option('--harness') : undefined);
-  const oldLens = name === 'validator' ? option('--validator-lens') : undefined;
-  return { ...stored, harness: oldHarness ?? stored.harness ?? 'pi', lens: oldLens ?? stored.lens };
+  return { ...stored, harness: oldHarness ?? stored.harness ?? 'pi' };
 }
 function parseResult(output: string): Outcome | undefined {
   for (const text of output.trim().split('\n').reverse()) { try { return JSON.parse(text) as Outcome; } catch {} }
@@ -222,40 +234,156 @@ function prompt(name: string): string {
   const answer = wanted.length
     ? `Finish with one JSON line containing ${wanted.map(f => `"${f}"`).join(' and ')}${name === 'validator' || (name === 'doer' && wanted.includes('findings')) ? ' and "findings"' : ''}.`
     : 'Finish with one JSON line describing the work.';
-  if (name === 'planner') return completingTask
-    ? `Read the plan at ${JSON.stringify(plan)}.\nThe current task's validated work has been committed.\nMark the current task done, and mark only that task. Inspect the updated plan. Set "complete" to false when any task remains unfinished, and true only when every task is finished.\n${answer}`
-    : `Read the seed at ${JSON.stringify(seed)}.\nIf no plan exists at ${JSON.stringify(plan)}, write one there.\nInspect the plan after any write. Set "complete" to false whenever the plan has any unfinished task, and true only when every task is finished. Do not perform a task.\n${answer}`;
+  if (name === 'planner') {
+    return completingTask
+      ? `The plan is at ${JSON.stringify(plan)}.
+  The current task's validated work has been committed.
+  ${answer}`
+      : `The seed is at ${JSON.stringify(seed)}.
+  The plan belongs at ${JSON.stringify(plan)}.
+  ${answer}`;
+  }
   if (name === 'doer') {
     const tests = testFiles();
     const revisionRoute = edges.some(e => e.from === 'doer' && e.to === 'test_author' && e.label === 'tests_need_revision');
-    const testPolicy = hasTestAuthor
-      ? ` Do not modify test files.${revisionRoute ? '\nIf the tests are missing or insufficient, leave them unchanged and return "tests_need_revision": true with the reason in "findings"; do not implement around a faulty test.' : ''}`
+    const testContext = hasTestAuthor
+      ? `A test author is on the assembly line.${
+          revisionRoute
+            ? '\nThe result can route on "tests_need_revision".'
+            : ''
+        }`
       : '';
+
     const feedback = repairContract
-      ? `\nThe fan-in review produced this repair contract:\n${JSON.stringify(repairContract)}\nAddress every finding together. In your final JSON, include a "repairs" array with one disposition for every finding id. Each disposition must contain "id", "status", "change", and "verification". Do not add these attempt-local findings to the plan.`
-      : findings === undefined ? '' : `\nThe validator reported these findings:\n${JSON.stringify(findings)}\nAddress each finding.`;
-    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nImplement the first unfinished task. Do not mark it done.${testPolicy}${tests.length ? `\nThe task's tests are:\n${tests.join('\n')}` : '\nNo applicable tests were created.'}${feedback}\n${answer}`;
+      ? `Repair contract:
+    ${JSON.stringify(repairContract)}
+    Repair dispositions use the fields "id", "status", "change", and
+    "verification".`
+      : findings === undefined
+        ? ''
+        : `Findings:
+    ${JSON.stringify(findings)}`;
+    return `The seed is at ${JSON.stringify(seed)} and the plan is at ${JSON.stringify(plan)}.
+    ${testContext}
+    ${tests.length
+      ? `The task's tests are:\n${tests.join('\n')}`
+      : 'No applicable tests were created.'}
+    ${feedback}
+    ${answer}`;
   }
-  if (name === 'test_author') return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nCreate objective tests for the first unfinished task when tests are applicable. If no tests are applicable, say so in your result. Do not implement the task.${findings === undefined ? '' : `\nThe previous machine reported these findings about the tests:\n${JSON.stringify(findings)}\nCorrect the tests and address each finding.`}\n${answer}`;
-  if (fanInResults && name === fanInTarget) return reviewFanIn
-    ? `Consider only these branch results and decide what happens next:\n${JSON.stringify(fanInResults)}\nConsolidate overlapping blocking findings into one repair contract. Preserve the strongest concrete evidence. Keep only explicit current-task violations, relevant test failures, and regressions in "findings"; put later-task work, speculative improvements, and preference-only refactors in "advisories".\nSet "satisfied" to false exactly when "findings" is non-empty. Each finding must contain "id", "requirement", "evidence", "repair", and "verification".\nFinish with one JSON line containing "satisfied", "findings", and "advisories".`
-    : `Consider only these branch results and decide what happens next:\n${JSON.stringify(fanInResults)}\n${answer}`;
+  if (name === 'test_author') {
+    const previousFindings = findings === undefined
+      ? ''
+      : `Previous findings about the tests:
+  ${JSON.stringify(findings)}`;
+
+    return `The seed is at ${JSON.stringify(seed)}.
+  The plan is at ${JSON.stringify(plan)}.
+  ${previousFindings}
+  ${answer}`;
+  }
+  if (fanInResults && name === fanInTarget) {
+    return `The branch results are:
+  ${JSON.stringify(fanInResults)}
+  ${answer}`;
+  }
+
   if (name === 'validator') {
-    const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
-    return `Run the current task's tests first. Confirm they pass, then review the current task's work using ${machineConfig(name).lens ?? ''} as your focus.\nRead the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.\nThe current task's changed product files are:\n${work}\nDo not change any files.\n${answer}`;
+    const work = execFileSync(
+      'git',
+      [
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--',
+        '.',
+        ':(exclude).assembly-lines',
+      ],
+      { cwd: target, encoding: 'utf8' },
+    );
+
+    return `Read the seed at ${JSON.stringify(seed)} and plan at ${JSON.stringify(plan)}.
+  The current task's changed product files are:
+  ${work}
+  ${answer}`;
   }
   if (name.startsWith('reviewer_')) {
-    const work = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).assembly-lines'], { cwd: target, encoding: 'utf8' });
-    const repairReview = repairContract
-      ? `\nThis is a repair review. The previous repair contract was:\n${JSON.stringify(repairContract)}\nThe doer's reported dispositions were:\n${JSON.stringify(repairDispositions ?? [])}\nFor every previous finding id, return a verification with "resolved" or "unresolved" and concrete evidence. Then inspect the repaired work and relevant surrounding code for regressions and newly exposed violations of the current task. New blocking findings are allowed when they identify such a regression or an explicit current-task requirement.`
-      : '\nThis is the initial review, so return an empty "verification" array.';
-    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.\nReview only the first unfinished task using ${machineConfig(name).lens ?? ''} as your focus. The lens guides the review but is not an acceptance criterion by itself.\nA blocking finding must identify an explicit requirement of the current task, a relevant test failure, or a regression. Treat later plan tasks, speculative improvements, and preference-only refactors as advisories.\nThe current task's changed product files are:\n${work}${repairReview}\nDo not change any files.\nFinish with one JSON line containing "satisfied", "verification", "findings", and "advisories". Every blocking finding must contain "id", "requirement", "evidence", "repair", and "verification".`;
+    const work = execFileSync(
+      'git',
+      [
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--',
+        '.',
+        ':(exclude).assembly-lines',
+      ],
+      { cwd: target, encoding: 'utf8' },
+    );
+
+    const reviewContext = repairContract
+      ? `This is a repair review.
+  The previous repair contract was:
+  ${JSON.stringify(repairContract)}
+  The doer's reported dispositions were:
+  ${JSON.stringify(repairDispositions ?? [])}`
+      : 'This is an initial review.';
+
+    return `Read the seed at ${JSON.stringify(seed)} and the plan at ${JSON.stringify(plan)}.
+  The current task's changed product files are:
+  ${work}
+  ${reviewContext}
+  ${answer}`;
   }
   return answer;
 }
+function configuredPrompt(name: string): string {
+  const instructionsFile = resolve(
+    lineDirectory,
+    '.machines',
+    name,
+    'AGENTS.md',
+  );
+  const instructions = existsSync(instructionsFile)
+    ? readFileSync(instructionsFile, 'utf8').trim()
+    : '';
+
+  return [instructions, prompt(name)]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function harnessArguments(name: string, harness: string): string[] {
+  if (basename(harness) === 'codex') {
+    return ['exec', '--ephemeral', prompt(name)];
+  }
+  if (basename(harness) !== 'pi') return [configuredPrompt(name)];
+
+  const machineDirectory = resolve(lineDirectory, '.machines', name);
+  const instructionsFile = resolve(machineDirectory, 'AGENTS.md');
+  const args = ['-p', '--no-session', '--no-context-files'];
+  if (existsSync(instructionsFile)) {
+    args.push('--append-system-prompt', instructionsFile);
+  }
+  args.push(prompt(name));
+  return args;
+}
+
 function execute(name: string, catalyst: string): Outcome {
   const harness = machineConfig(name).harness;
-  const execution = spawnSync(harness, [prompt(name)], { cwd: target, encoding: 'utf8', env: { ...process.env, FACTORY_RUN_NAME: runName! } });
+  const machineDirectory = resolve(lineDirectory, '.machines', name);
+  const execution = spawnSync(harness, harnessArguments(name, harness), {
+    cwd: target,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      FACTORY_RUN_NAME: runName!,
+      PI_CODING_AGENT_DIR: machineDirectory,
+      ...(basename(harness) === 'codex'
+        ? { CODEX_HOME: machineDirectory }
+        : {}),
+    },
+  });
   if (execution.error) {
     const message = `Could not run the ${name === 'planner' ? 'agent' : name}: machine=${name} harness=${JSON.stringify(harness)} error=${JSON.stringify(execution.error.message)}`;
     appendLog(`[agent-error] ${message}`);
@@ -272,9 +400,17 @@ async function executeBranches(names: string[], catalyst: string): Promise<Outco
   const children: ReturnType<typeof spawn>[] = [];
   const runs = names.map(name => new Promise<Outcome>((resolveRun, rejectRun) => {
     const harness = machineConfig(name).harness;
-    const child = spawn(harness, [prompt(name)], {
+    const machineDirectory = resolve(lineDirectory, '.machines', name);
+    const child = spawn(harness, harnessArguments(name, harness), {
       cwd: target,
-      env: { ...process.env, FACTORY_RUN_NAME: runName! },
+      env: {
+        ...process.env,
+        FACTORY_RUN_NAME: runName!,
+        PI_CODING_AGENT_DIR: machineDirectory,
+        ...(basename(harness) === 'codex'
+          ? { CODEX_HOME: machineDirectory }
+          : {}),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     children.push(child);

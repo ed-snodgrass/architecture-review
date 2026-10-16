@@ -93,7 +93,10 @@ Given('a copy of the factory', function () {
     copyFileSync(resolve(file), join(this.workspace, file));
   }
   symlinkSync(resolve('node_modules'), join(this.workspace, 'node_modules'));
-  writeFileSync(join(this.workspace, '.gitignore'), '/runs/\n');
+  writeFileSync(
+    join(this.workspace, '.gitignore'),
+    '/runs/\n**/.machines/*/auth.json\n**/.machines/*/.credentials.json\n',
+  );
 
   const git = (args: string[]) => 
     execFileSync('git', args, {
@@ -159,7 +162,97 @@ Given('the target has the machines planner, doer and validator', function () {
       ? { lens: 'single responsibility' }
       : {};
     writeFileSync(join(directory, 'machine.json'), JSON.stringify(configuration));
+    writeFileSync(join(directory, 'auth.json'), '{"test":"login"}\n');
+    if (machine === 'doer') {
+      writeFileSync(
+        join(directory, 'AGENTS.md'),
+        `# Doer
+
+        Read the seed and plan, then implement only the first unfinished task.
+        Do not mark the task done; the planner owns the plan.
+
+        Run and maintain the tests needed for the current task. Unless the
+        current prompt says that a test author is on the assembly line, create
+        or modify test files as needed.
+
+        When a test author is on the line, never modify test files. If those
+        tests are missing or insufficient, report that instead of implementing
+        around a faulty test.
+
+        When findings or a repair contract are provided, address every finding
+        together. Do not add attempt-specific findings to the plan. Report one
+        repair disposition per finding, containing "id", "status", "change", and
+        "verification".
+    `,
+      );
+    }
+    if (machine === 'planner') {
+      writeFileSync(
+        join(directory, 'AGENTS.md'),
+        `# Planner
+
+    You own the plan. If it does not exist, read the seed and create it.
+    Never perform a task yourself.
+
+    When notified that the current task's approved changes are committed,
+    mark only that task finished. Report "complete" as true only when every
+    task is finished; otherwise report false.
+    `,
+      );
+    }
   }
+});
+
+Given("the doer's AGENTS.md says {string}", function (instructions: string) {
+  const file = join(
+    this.target,
+    '.assembly-lines',
+    '.machines',
+    'doer',
+    'AGENTS.md',
+  );
+  writeFileSync(file, instructions + '\n');
+});
+
+Given('the doer has its own login', function () {
+  this.doerMachineDirectory = join(
+    this.target,
+    '.assembly-lines',
+    '.machines',
+    'doer',
+  );
+  this.doerLogin = join(this.doerMachineDirectory, 'auth.json');
+  writeFileSync(this.doerLogin, '{"test":"login"}\n');
+});
+
+Given('the doer has no login', function () {
+  const login = join(
+    this.target,
+    '.assembly-lines',
+    '.machines',
+    'doer',
+    'auth.json',
+  );
+  rmSync(login, { force: true });
+});
+
+Given("there is an API key for the doer's provider", function () {
+  this.env.ANTHROPIC_API_KEY = 'test-api-key';
+});
+
+Given("the validator's AGENTS.md says {string}", function (instructions: string) {
+  const file = join(
+    this.target,
+    '.assembly-lines',
+    '.machines',
+    'validator',
+    'AGENTS.md',
+  );
+  writeFileSync(file, instructions + '\n');
+});
+
+Given("there is no API key for the doer's provider", function () {
+  delete this.env.ANTHROPIC_API_KEY;
 });
 
 Given('the target has the three big brains', function () {
@@ -188,6 +281,22 @@ Given('the target has the machines planner, test_author, doer and validator', fu
       ? { lens: 'single responsibility' }
       : {};
     writeFileSync(join(directory, 'machine.json'), JSON.stringify(configuration));
+    writeFileSync(join(directory, 'auth.json'), '{"test":"login"}\n');
+
+    if (machine === 'test_author') {
+      writeFileSync(
+        join(directory, 'AGENTS.md'),
+        `# Test author
+
+Read the seed and plan, then create objective tests for the first
+unfinished task when tests are applicable. If no tests apply, say so in
+the result.
+
+Do not implement the task. When previous findings are provided, correct
+the tests and address every finding.
+`,
+      );
+    }
   }
 });
 
@@ -207,7 +316,34 @@ Given(
       const directory = join(this.target, '.assembly-lines', '.machines', machine);
       mkdirSync(directory, { recursive: true });
       writeFileSync(join(directory, 'machine.json'), '{}');
+      writeFileSync(join(directory, 'auth.json'), '{"test":"login"}\n');
     }
+    writeFileSync(
+      join(
+        this.target,
+        '.assembly-lines',
+        '.machines',
+        'synthesiser',
+        'AGENTS.md',
+      ),
+      `# Synthesiser
+
+    Consider only the reviewers' results and decide what happens next.
+
+    Consolidate overlapping blocking findings into one repair contract.
+    Preserve the strongest concrete evidence. Keep only explicit current-task
+    violations, relevant test failures, and regressions in "findings". Put
+    later-task work, speculative improvements, and preference-only refactors
+    in "advisories".
+
+    Set "satisfied" to false exactly when "findings" is non-empty. Each
+    finding must contain "id", "requirement", "evidence", "repair", and
+    "verification".
+
+    Finish with one JSON line containing "satisfied", "findings", and
+    "advisories".
+    `,
+    );
     const file = join(this.target, '.assembly-lines', name + '.dot');
     writeFileSync(file, `digraph assembly_line {
   start -> planner
@@ -432,6 +568,11 @@ Then('it reports that it could not run the doer', function () {
   assert.match(output, /could not run the doer/i);
 });
 
+Then('it reports that the doer cannot sign in', function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /doer cannot sign in/i);
+});
+
 Then('it reports that the pass hit its limit', function () {
   const output = this.result.stdout + this.result.stderr;
   assert.match(output, /pass hit its limit/i);
@@ -573,7 +714,7 @@ fs.mkdirSync(path.dirname(plan), { recursive: true });
 if (process.env.FACTORY_TEST_PLANNER_PROSE === '1') {
   if (!fs.existsSync(plan)) {
     fs.writeFileSync(plan, 'First do alpha, then do beta.');
-  } else if (prompt.includes('Mark the current task done')) {
+  } else if (prompt.includes('validated work has been committed')) {
     const text = fs.readFileSync(plan, 'utf8');
     fs.writeFileSync(
       plan,
@@ -595,7 +736,7 @@ if (!fs.existsSync(plan)) {
 }
 
 let text = fs.readFileSync(plan, 'utf8');
-if (prompt.includes('Mark the current task done')) {
+if (prompt.includes('validated work has been committed')) {
   text = text.replace(/^- \[ \] (.+)$/m, '- [x] $1');
   fs.writeFileSync(plan, text);
 }
@@ -627,7 +768,7 @@ fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-planner\n');
 fs.mkdirSync(path.dirname(plan), { recursive: true });
 if (!fs.existsSync(plan)) fs.writeFileSync(plan, '- [ ] alpha\n');
 let text = fs.readFileSync(plan, 'utf8');
-if (process.argv.slice(2).join('\n').includes('Mark the current task done')) {
+if (process.argv.slice(2).join('\n').includes('validated work has been committed')) {
   text = text.replace('- [ ] alpha', '- [x] alpha');
   fs.writeFileSync(plan, text);
 }
@@ -731,6 +872,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const workspace = process.env.FACTORY_TEST_WORKSPACE;
+fs.writeFileSync(
+  path.join(workspace, 'doer-config-dir'),
+  process.env.PI_CODING_AGENT_DIR || '',
+);
+fs.writeFileSync(
+  path.join(workspace, 'doer-api-key'),
+  process.env.ANTHROPIC_API_KEY || '',
+);
 fs.appendFileSync(path.join(workspace, 'agent-calls'), 'fake-doer\n');
 fs.appendFileSync(path.join(workspace, 'doer-calls'), 'called\n');
 fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
@@ -1037,9 +1186,34 @@ Given('the second reviewer cannot be run', function () {
 
 Given("the reviewers' lens is testability", function () {
   for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
-    const file = join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json');
-    const configuration = JSON.parse(readFileSync(file, 'utf8'));
-    writeFileSync(file, JSON.stringify({ ...configuration, lens: 'testability' }));
+    const file = join(
+      this.target,
+      '.assembly-lines',
+      '.machines',
+      reviewer,
+      'AGENTS.md',
+    );
+
+    writeFileSync(file, `# Reviewer
+
+Review only the first unfinished task. Do not change the plan or work.
+
+Look at the work through one lens: testability. The lens guides the
+review but is not an acceptance criterion by itself.
+
+A blocking finding must identify an explicit requirement of the current
+task, a relevant test failure, or a regression. Treat later-task work,
+speculative improvements, and preference-only refactors as advisories.
+
+On an initial review, return an empty verification array. On a repair
+review, verify every previous finding as resolved or unresolved using
+concrete evidence. Check the repaired work for regressions and newly
+exposed violations.
+
+Finish with one JSON line containing "satisfied", "verification",
+"findings", and "advisories". Every blocking finding must contain "id",
+"requirement", "evidence", "repair", and "verification".
+`);
   }
 });
 
@@ -1167,7 +1341,21 @@ Given('the factory allows at most three attempts per pass', function () {
 });
 
 Given("the validator's lens is {word}", function (lens: string) {
-  this.validatorLens = lens;
+  const file = join(
+    this.target,
+    '.assembly-lines',
+    '.machines',
+    'validator',
+    'AGENTS.md',
+  );
+
+  writeFileSync(file, `# Validator
+
+Review the current task without changing the plan or the work.
+
+Look at the work through one lens: ${lens}.
+Run the current task's tests first.
+`);
 });
 
 function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined, quiet = false) {
@@ -1192,10 +1380,6 @@ function runFactory(this: IWorld, run = this.runName, onlyName = false, target =
 
   if (this.validatorHarness !== undefined) {
     args.push('--validator-harness', this.validatorHarness);
-  }
-
-  if (this.validatorLens !== undefined) {
-    args.push('--validator-lens', this.validatorLens);
   }
 
   if (this.maxAttempts !== undefined) {
@@ -1456,6 +1640,7 @@ Then('the validator was given {string}', function (lens: string) {
     'utf8',
   ));
   const prompt = args.join('\n');
+  this.lastPrompt = prompt;
 
   assert.match(prompt, new RegExp(`\\b${lens}\\b`, 'i'));
 });
@@ -1505,6 +1690,36 @@ Then(
   },
 );
 
+Then('the doer signed in with its own login', function () {
+  const configDirectory = readFileSync(
+    join(this.workspace, 'doer-config-dir'),
+    'utf8',
+  );
+  assert.equal(configDirectory, this.doerMachineDirectory);
+});
+
+Then("the doer's login is ignored by Git", function () {
+  const result = spawnSync(
+    'git',
+    ['check-ignore', '--quiet', '--', this.doerLogin],
+    { cwd: this.workspace },
+  );
+  assert.equal(result.status, 0);
+});
+
+Then('the doer signed in with the API key', function () {
+  const apiKey = readFileSync(
+    join(this.workspace, 'doer-api-key'),
+    'utf8',
+  );
+  assert.equal(apiKey, 'test-api-key');
+});
+
+Then('the doer was given {string}', function (instructions: string) {
+  const prompt = recordedPrompts(this.workspace, 'doer')[0];
+  assert.ok(prompt.includes(instructions));
+});
+
 Then('the doer has not been called', function () {
   assert.equal(
     existsSync(join(this.workspace, 'doer-calls')),
@@ -1521,6 +1736,8 @@ Then("the doer was given the validator's findings", function () {
 
 Then("the doer was given the synthesiser's findings", function () {
   const prompt = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8');
+  this.lastPrompt = prompt;
+
   assert.match(prompt, /combined review found a problem/i);
 });
 
@@ -1682,8 +1899,8 @@ Then('the synthesiser was given {string}', function (finding: string) {
 });
 
 Then('it was not given {string}', function (finding: string) {
-  const prompt = readFileSync(join(this.workspace, 'doer-args-log'), 'utf8');
-  assert.doesNotMatch(prompt, new RegExp(finding));
+  assert.ok(this.lastPrompt, 'Expected a preceding prompt assertion');
+  assert.doesNotMatch(this.lastPrompt, new RegExp(finding));
 });
 
 Then("it reports that it could not read reviewer_2's result", function () {
