@@ -32,8 +32,8 @@ class FetchTest(unittest.TestCase):
             (folder / "spec.md").write_text(f"Seed {number}\n")
         (self.iterations / "README.md").write_text("\n".join(ledger))
         archive = self.base / "course.tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(self.base / "course", arcname="tutorial-main")
+        self.archive = archive
+        self.pack()
         fake_bin = self.base / "bin"
         fake_bin.mkdir()
         curl = fake_bin / "curl"
@@ -46,6 +46,10 @@ class FetchTest(unittest.TestCase):
             "CURL_ARGS": str(self.base / "curl-args"),
             "COURSE_REF": "test-root-layout",
         }
+
+    def pack(self):
+        with tarfile.open(self.archive, "w:gz") as tar:
+            tar.add(self.base / "course", arcname="tutorial-main")
 
     def fetch(self, cwd=None, success=True):
         result = subprocess.run(
@@ -105,6 +109,21 @@ class FetchTest(unittest.TestCase):
         result = self.fetch(success=False)
         self.assertIn("nothing left to fetch after 004", result.stdout)
         self.assertEqual((self.root / "factory/ITERATION").read_text(), "004 WIP\n")
+
+    def test_inserted_iteration_is_fetched_in_ledger_order(self):
+        folder = self.iterations / "002a-inserted"
+        (folder / "features").mkdir(parents=True)
+        (folder / "README.md").write_text("Homework 2a\n")
+        (folder / "FACTORY.md").write_text("Factory 2a\n")
+        (folder / "features" / "2a.feature").write_text("Feature: Example\n")
+        ledger = (self.iterations / "README.md").read_text().splitlines()
+        ledger.insert(2, "| 002a | [Inserted](002a-inserted/README.md) |")
+        (self.iterations / "README.md").write_text("\n".join(ledger))
+        self.pack()
+        for expected in ("001", "002", "002a", "003"):
+            self.fetch()
+            self.assertEqual((self.root / "factory/ITERATION").read_text(), f"{expected} WIP\n")
+        self.assertTrue((self.root / "factory/spec/features/3.feature").is_file())
 
 
 if __name__ == "__main__":

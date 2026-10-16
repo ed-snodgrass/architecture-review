@@ -14,7 +14,7 @@ Fork it to start your capstone project.
 - **The homeworks grow a factory**: a program that turns a written spec
   into working software by running coding agents. Over seven homeworks
   it learns to automate (turn a seed into working software, one task at
-  a time), compose (explicit routes, machines, jobs and targets) and
+  a time), compose (explicit routes, machines, runs and targets) and
   operate (parallel work you can watch live and steer).
 - **Your factory learns on Tetris first.** The homeworks build Tetris,
   in `tetris/`, as a practice target everyone shares. Your capstone

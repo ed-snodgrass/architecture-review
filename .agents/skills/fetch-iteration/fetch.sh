@@ -17,9 +17,10 @@ trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "https://codeload.github.com/lean-software-production/tutorial/tar.gz/$ref" \
   | tar -xz -C "$tmp" --strip-components=1
 
-# Ledger rows look like: | 001 | [Title](001-folder/README.md) |
-ledger=$(grep -oE '^\| [0-9]{3} \| \[[^]]*\]\([^/]+/' "$tmp/docs/iterations/README.md" \
-  | sed -E 's/^\| ([0-9]{3}) .*\(([^/]+)\/$/\1 \2/')
+# Ledger rows look like: | 001 | [Title](001-folder/README.md) |, and an
+# iteration inserted later carries a letter: | 005a | [Title](005a-folder/README.md) |
+ledger=$(grep -oE '^\| [0-9]{3}[a-z]? \| \[[^]]*\]\([^/]+/' "$tmp/docs/iterations/README.md" \
+  | sed -E 's/^\| ([0-9]{3}[a-z]?) .*\(([^/]+)\/$/\1 \2/')
 
 current=$(cut -d' ' -f1 ITERATION 2>/dev/null || true)
 if [ -z "$current" ]; then
