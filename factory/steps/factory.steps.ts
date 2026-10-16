@@ -89,7 +89,7 @@ Then('the target is a Git repository', function () {
 Given('a copy of the factory', function () {
   this.workspace = realpathSync(mkdtempSync(join(tmpdir(), 'factory-')));
 
-  for (const file of ['cli.ts', 'run', 'package.json']) {
+  for (const file of ['cli.ts', 'assembly-line.ts', 'machines.ts', 'orchestrator.ts', 'prompts.ts', 'run', 'package.json']) {
     copyFileSync(resolve(file), join(this.workspace, file));
   }
   symlinkSync(resolve('node_modules'), join(this.workspace, 'node_modules'));
