@@ -1,3 +1,9 @@
 .idea
 /factory/runs/
 .DS_Store
+
+# Each machine keeps its own copy of your login (homework 5a). Never
+# commit one. Your factory should keep them out of Git too; this is a
+# safety net.
+**/.machines/*/auth.json
+**/.machines/*/.credentials.json
