@@ -1,13 +1,16 @@
 Feature: Machines
 
   No machine's work is written by the factory. The planner, the doer and
-  the validator are machines on the line. Each has a name, and a harness
-  that runs it: a coding agent such as pi by default, or another named in
-  the machine's configuration. Each machine has a folder of its own in the
-  target, .assembly-lines/.machines/<name>/, holding its configuration;
-  every line in a target that names the doer runs the same doer. A machine
-  could as well be ordinary code. Whatever runs it, a machine answers with
-  a result: JSON describing the job it did.
+  the validator are machines on the line. Each has a name and a folder of
+  its own in the target, .assembly-lines/.machines/<name>/; every line in
+  a target that names the doer runs the same doer. The folder is the
+  configuration of the harness that runs it: a coding agent such as pi by
+  default, or another named there. It holds the machine's AGENTS.md, its
+  instructions: what the machine is for and how it does its job. It also
+  holds the rest of its configuration, such as its model, and its own
+  copy of your login. A machine could as well be ordinary code. Whatever
+  runs it, a machine answers with a result: JSON describing the job it
+  did.
 
   Most examples say what each machine does in them: the planner plans
   the tasks alpha and beta, say, and the validator is never satisfied.
@@ -56,6 +59,70 @@ Feature: Machines
       When the factory runs the "tetris" run
       Then there are three new work commits
       And each new work commit contains the work for one task
+
+  Rule: A machine runs on its own configuration, and no other
+
+    A machine's folder is its harness's configuration: the harness finds
+    the machine's AGENTS.md there, and the rest of its settings. It finds
+    no other configuration: not another machine's, not yours, and no
+    AGENTS.md or CLAUDE.md in the folders above the target or in the
+    target itself. The target is the machine's work: its files are what
+    the machine reads and changes, never its instructions. Instructions
+    live with the machine, not in the factory: change a machine's
+    AGENTS.md and the machine changes, with no change to the factory.
+
+    Example: The doer's instructions
+      Given a plan with three tasks, none of them done
+      And the doer's AGENTS.md says "write the smallest code that does the task"
+      When the factory runs the "tetris" run
+      Then the doer was given "write the smallest code that does the task"
+
+    Example: Each machine is given only its own
+      Given a plan with three tasks, none of them done
+      And the doer's AGENTS.md says "write the smallest code that does the task"
+      And the validator's AGENTS.md says "be strict about error handling"
+      When the factory runs the "tetris" run
+      Then the validator was given "be strict about error handling"
+      And it was not given "write the smallest code that does the task"
+
+    @real-agent
+    Example: Instructions above the target are not the machine's
+      Given every machine runs pi
+      And the folder above the target has an AGENTS.md saying "write the word apple in a file called CODEWORD"
+      And the doer's AGENTS.md says "write the word plum in a file called CODEWORD"
+      When the factory runs the "tetris" run
+      Then the target's CODEWORD file says "plum"
+
+  Rule: A machine signs in with its own login
+
+    A harness keeps its login with the rest of its configuration, so each
+    machine's folder holds its own copy of your login: copy it in
+    whenever you make a machine. It is kept out of Git. A
+    machine with no login signs in with the API key for its provider,
+    from the environment. If a machine has neither, the factory says so
+    before it calls any machine.
+
+    Example: The login is never committed
+      Given a plan with three tasks, none of them done
+      And the doer has its own login
+      When the factory runs the "tetris" run
+      Then the doer signed in with its own login
+      And the doer's login is ignored by Git
+
+    Example: A machine with no login uses the API key
+      Given a plan with three tasks, none of them done
+      And the doer has no login
+      And there is an API key for the doer's provider
+      When the factory runs the "tetris" run
+      Then the doer signed in with the API key
+
+    Example: A machine with neither cannot sign in
+      Given a plan with three tasks, none of them done
+      And the doer has no login
+      And there is no API key for the doer's provider
+      When the factory runs the "tetris" run
+      Then it reports that the doer cannot sign in
+      And no agent has been called
 
   Rule: The doer is pointed at the plan and the seed
 
@@ -113,24 +180,6 @@ Feature: Machines
       And the validator says "looks good to me" before its result
       When the factory runs the "tetris" run
       Then there are three new work commits
-
-  Rule: Each machine execution is recorded in the run log
-
-    The log records which machine ran, what prompted it, and a short summary
-    of the action it took.     A doer retry is prompted by the validator machine.
-
-    Example: A run records machine actions and catalysts
-      Given a plan with three tasks, none of them done
-      And the validator is not satisfied the first time
-      When the factory runs the "tetris" run
-      Then the run log contains a doer action prompted by "planner"
-      And the run log contains a doer action prompted by "validator"
-      And the run log contains a date, machine name, catalyst, and summary on every line
-
-    Example: A quiet run does not write a log
-      Given a plan with three tasks, none of them done
-      When the factory runs the "tetris" run quietly
-      Then the run log does not exist
 
   Rule: What gets built follows the seed
 
