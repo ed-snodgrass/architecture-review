@@ -4,13 +4,14 @@ Feature: Machines
   the validator are machines on the line. Each has a name and a folder of
   its own in the target, .assembly-lines/.machines/<name>/; every line in
   a target that names the doer runs the same doer. The folder is the
-  configuration of the harness that runs it: a coding agent such as pi by
-  default, or another named there. It holds the machine's AGENTS.md, its
-  instructions: what the machine is for and how it does its job. It also
-  holds the rest of its configuration, such as its model, and its own
-  copy of your login. A machine could as well be ordinary code. Whatever
-  runs it, a machine answers with a result: JSON describing the job it
-  did.
+  configuration of the harness that runs it. It holds the machine's
+  AGENTS.md, its instructions: what the machine is for and how it does
+  its job. It also holds the rest of its configuration, such as its
+  model, and its own copy of your login. The harness is an ACP agent,
+  which the factory speaks the Agent Client Protocol to over stdio — pi,
+  through its ACP bridge, by default, or another named in the machine's
+  configuration. A machine could as well be ordinary code. Whatever runs
+  it, a machine answers with a result: JSON describing the job it did.
 
   Most examples say what each machine does in them: the planner plans
   the tasks alpha and beta, say, and the validator is never satisfied.

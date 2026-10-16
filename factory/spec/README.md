@@ -1,181 +1,94 @@
-# Homework 5a — Machine configuration
+# Homework 6 — Watching
 
 Read `FACTORY.md`, then the feature files in `features/`. Together they
 are the whole spec of the factory at this point, not just the new parts.
 
-Since homework 4 every machine has had a folder of its own,
-`.assembly-lines/.machines/<name>/`, holding "its configuration". No
-homework has said what goes in it, and your machines' prompts probably
-still live in your factory's code. In homework 3 the route came out of
-your code and into a line the factory reads. This homework does the same
-for the machines: what a machine is for, and how it does its job, comes
-out into its folder.
+Homework 5a, machine configuration, was added after homework 5. If you
+haven't done it, sync your fork on GitHub, set `factory/ITERATION` to
+`005 Done`, and say "fetch iteration": you'll get 5a, and this homework
+after it. 5a makes each machine's folder its harness's configuration,
+with its own instructions and its own copy of your login.
 
-A machine's folder is the **configuration directory of the harness that
-runs it**. Every coding agent has one, `~/.pi/agent`, `~/.claude` or
-`~/.codex` when you use it yourself, and each can be pointed somewhere
-else. The factory points it at the machine's folder, so the harness runs
-on the machine's configuration instead of yours. The folder holds:
+The factory builds the same software it built for homework 5. What is new
+is that you can watch it: what every machine generates, and what every
+machine costs.
 
-- **`AGENTS.md`** — the machine's instructions: what it is for, how it
-  does its job, and anything it should bring to the work, such as the
-  validator's lens. Whichever harness runs the machine, this is the file
-  you write.
-- **The rest of its configuration** — the harness that runs it (`pi`,
-  unless it names another) and whatever that harness needs: its model,
-  and from homework 6 its provider. The file's name and format are your
-  choice. The harness's own settings files go here too, when it needs
-  any.
-- **Its own copy of your login** — a harness keeps its login in its
-  configuration directory, so a machine needs one of its own. It
-  is kept out of Git.
+This is where your factory stops being something you run and becomes
+something that is running. You start a run and get your terminal back.
+Watching is a separate command that attaches to a run in flight. How it
+attaches — a socket, a pipe, a file the daemon appends to, an HTTP
+endpoint — is yours to choose.
 
-The factory gives each machine its own `AGENTS.md`, and no other
-machine's. Change a machine's `AGENTS.md`, and the machine changes, with
-no change to your code.
+## Your machines speak ACP
 
-## What a target looks like
+Until now each machine was one call: a prompt in, an answer out. To watch
+a machine as it works, and see what it spends, the factory now runs each
+one as an ACP agent — the [Agent Client
+Protocol](https://agentclientprotocol.com), JSON-RPC over the machine's
+stdin and stdout — and is itself the ACP client. A machine's harness is
+an ACP agent from here on:
 
-The format of the configuration file is yours; `machine.json` is only an
-example. Here each machine runs a different harness, to show what each
-one keeps:
+- Claude Code: `claude-agent-acp` (npm `@agentclientprotocol/claude-agent-acp`)
+- Codex: `codex-acp` (npm `@agentclientprotocol/codex-acp`)
+- pi: `pi-rpc-acp`, the small bridge over pi's RPC mode in your starter
+  repo
 
-```text
-tetris/tetris-005a/
-  .assembly-lines/
-    careful.dot
-    quick.dot
-    .machines/
-      planner/
-        AGENTS.md
-        machine.json      {"harness": "pi", "model": "<a model>"}
-        auth.json         pi's login, copied in; ignored by Git
-      doer/
-        AGENTS.md
-        CLAUDE.md         "@AGENTS.md", so Claude Code reads AGENTS.md
-        machine.json      {"harness": "claude", "model": "<a model>"}
-        .credentials.json Claude Code's login, copied in; ignored by Git
-      validator/
-        AGENTS.md
-        config.toml       Codex's settings
-        machine.json      {"harness": "codex", "model": "<a model>"}
-        auth.json         Codex's login, copied in; ignored by Git
-      reviewer_1/
-        AGENTS.md         the same in all three reviewers
-        machine.json      {"harness": "pi", "model": "<an Anthropic model>"}
-        auth.json
-      reviewer_2/ ...
-      reviewer_3/ ...
-      synthesiser/ ...
-```
+What the factory reads: the `agent_message_chunk` updates, as what the
+machine generates; the last line of that text, as its result; and the
+`usage` on its `session/prompt` response — `inputTokens` and
+`outputTokens` — as what it spent. That usage is still a draft in ACP,
+but the Claude Code and Codex adapters send it, and so does the pi
+bridge.
 
-The three big brains' reviewers are configured alike apart from their
-models: the same `AGENTS.md`, and a different model each.
+Which ACP agent runs a machine, with which model, stays in the machine's
+configuration, and so does the model's provider, which the token totals
+follow. The machine's folder is still its harness's configuration, with
+its `AGENTS.md` and its own login. Each ACP agent runs on the folder
+much as its harness did in homework 5a:
 
-A validator's `AGENTS.md` might read:
+| ACP agent | Point it at the machine's folder | Its instructions, and nothing else |
+|---|---|---|
+| `pi-rpc-acp` | `PI_CODING_AGENT_DIR=<folder>` in its environment | arguments passed on to pi: `--no-context-files --append-system-prompt <folder>/AGENTS.md` |
+| `claude-agent-acp` | `CLAUDE_CONFIG_DIR=<folder>` in its environment | the folder's `CLAUDE.md` saying `@AGENTS.md`, and `"_meta": {"claudeCode": {"options": {"settingSources": ["user"]}}}` in `session/new` |
+| `codex-acp` | `CODEX_HOME=<folder>` in its environment | the folder's `AGENTS.md`, and `project_doc_max_bytes = 0` in its `config.toml` |
 
-```markdown
-# Validator
+Without that `_meta`, `claude-agent-acp` also reads the `CLAUDE.md` and
+`AGENTS.md` files around the target. Antigravity has no ACP agent, and is
+not supported.
 
-You check the doer's work on one task of a plan. You never change the
-plan or the work: you only report.
+## The commands you'll end up with
 
-Look at the work through one lens: testability. Can each part of the
-code be checked on its own, without the rest of the game running?
-
-If the work holds up, you are satisfied. If not, say why in your
-findings, one finding per problem, each specific enough for the doer to
-act on.
-```
-
-The lens you picked in homework 2 belongs here now, in the validator's
-`AGENTS.md`, and the reviewers' lens in each reviewer's.
-
-## Configuration, and work
-
-A machine runs in the target, and the target is its work: the files the
-machine reads and changes. That stays as it is.
-
-What changes is where the machine's **configuration** comes from. Left
-to itself, a harness also reads instruction files it finds around the
-folder it runs in. Your target sits inside your capstone repository, so
-a machine would pick up the repository's own `AGENTS.md`, the one that
-coaches you, and any `CLAUDE.md`. It would read your own configuration
-too, in your home folder. None of that is the machine's. The factory
-points each harness at the machine's folder, and turns off its search
-for instructions around the target. An `AGENTS.md` in the target itself
-is part of the product, not the machine's instructions.
-
-Each harness does this its own way. Each recipe below was tried with a
-copied login, and with an API key instead:
-
-| Harness | Point it at the machine's folder | Its instructions | Stop it reading other instructions | Login to copy in | Or, from the environment |
-|---|---|---|---|---|---|
-| pi | `PI_CODING_AGENT_DIR=<folder>` | `--append-system-prompt <folder>/AGENTS.md` | `--no-context-files` | `~/.pi/agent/auth.json` | the provider's key, such as `ANTHROPIC_API_KEY` |
-| Claude Code | `CLAUDE_CONFIG_DIR=<folder>` | a `CLAUDE.md` in the folder saying `@AGENTS.md` | `--setting-sources user` | `~/.claude/.credentials.json` | `ANTHROPIC_API_KEY` |
-| Codex | `CODEX_HOME=<folder>` | `AGENTS.md`, read from the folder as it is | `project_doc_max_bytes = 0` in the folder's `config.toml` | `~/.codex/auth.json` | `CODEX_API_KEY` |
-
-For example, the planner above runs as:
+Run these commands from the repository root, through `bin/factory`:
 
 ```sh
-PI_CODING_AGENT_DIR=<planner's folder> pi -p --no-session --no-context-files \
-  --append-system-prompt <planner's folder>/AGENTS.md "<the prompt>"
+# start a run — you get your terminal back
+$ bin/factory --run tetris --target tetris/tetris-002 --line careful --seed tetris/spec.md
+started run tetris
+
+# attach to it, now or later — catches you up, then follows live
+$ bin/factory watch tetris
+planner    | ...
+doer       | ...
+tokens     doer 12.4k in / 3.1k out   anthropic 15.5k   google 4.2k   openai 3.9k   run 23.6k
+
+# a second run while one is running is refused
+$ bin/factory --run snake --target snake/snake1 --line quick --seed snake/spec.md
+refused: run tetris is running
+
+# stop the run (the factory stays up); start it again later by name alone
+$ bin/factory stop tetris
+$ bin/factory --run tetris
+
+# stop the factory itself — its run stops with it
+$ bin/factory stop
 ```
 
-pi's `--no-context-files` also stops it reading an `AGENTS.md` in its
-own configuration directory, which is why its `AGENTS.md` is passed with
-`--append-system-prompt`. Claude Code reads a `CLAUDE.md` in its
-configuration directory, but not an `AGENTS.md`, so the `CLAUDE.md`
-imports it.
+Before you start, look at what your factory does today. It probably
+prints as it goes, and printing is not this: it is gone when the
+scrollback is gone, and it belongs to the terminal that started the run.
+A record you can attach to late, catch up on, and still read tomorrow is
+a different piece of machinery.
 
-**Antigravity (`agy`) is not supported yet.** It cannot be pointed at a
-configuration of its own, and it always reads the instruction files up
-to the top of your repository.
+## Your doubles speak ACP too
 
-### What lands in a machine's folder
-
-A harness writes into its configuration directory as it runs: Claude
-Code and Codex keep their sessions, logs and caches there, and pi its
-model cache. Only the configuration you wrote belongs in Git. One way to
-keep everything else out is a `.gitignore` in each machine's folder that
-ignores all but your files:
-
-```gitignore
-*
-!.gitignore
-!AGENTS.md
-!CLAUDE.md
-!config.toml
-!machine.json
-```
-
-A copied ChatGPT or Claude login refreshes itself as it is used, so a
-copy can stop working. If a machine says it cannot sign in, copy your
-login in again, or give it an API key.
-
-pi needs a recent Node: on Node 23.2 it can crash with
-`zlib.createZstdDecompress is not a function`. Node 24 works.
-
-## Adding a machine
-
-Every new machine needs the same few steps. None of them is hidden in
-the factory:
-
-1. Make its folder in `.assembly-lines/.machines/`, named for the
-   machine.
-2. Write its `AGENTS.md`, and its configuration: which harness, which
-   model.
-3. Copy your login for that harness into the folder, or make sure its
-   provider's API key is in the environment.
-4. Check that Git ignores the login: `git check-ignore <folder>/auth.json`
-   (or `.credentials.json`) should print its path.
-
-## Once your suite passes
-
-- Move every machine's prompt out of your factory's code and into its
-  `AGENTS.md`. Search your factory's source for your validator's lens:
-  it should not be there.
-- Change your validator's lens by editing only its `AGENTS.md`, and
-  build a generation in a fresh target. Did the findings follow?
-- Run one machine on a different harness from the others, by changing
-  only its folder.
+Your test doubles, which used to replace machines, now replace "machines that communicate via ACP".

@@ -4,6 +4,10 @@ Feature: Orchestration
   when to give up and when to stop. These rules do not care how validation
   is done.
 
+  A machine an example sees at work, part-way through or in a run just
+  started, goes on working until the example says it finishes, or the run
+  is stopped or run to the end.
+
   Background:
     Given a copy of the factory
     And a new target, with a seed describing a game of Tetris
@@ -21,6 +25,33 @@ Feature: Orchestration
     if none contains it. Work commits include only the selected target's
     generated work, excluding .assembly-lines/. Unrelated staged and
     unstaged changes are left alone.
+
+  Rule: The factory runs as a daemon
+
+    From here on the factory keeps running after the command that starts
+    a run returns, and it runs each machine as an ACP agent, speaking the
+    Agent Client Protocol to it over stdio. "The factory runs a run" still
+    means running it to the end: starting it, then waiting until it has
+    finished.
+
+    Example: Starting a run
+      Given a plan with one task, not done
+      When I start the "tetris" run
+      Then the command has returned while the "tetris" run is running
+      And the factory is running
+
+  Rule: The factory runs one run at a time
+
+    Example: A second run while one is running
+      Given a plan with one task, not done
+      And the "tetris" run is running, with the doer part-way through an attempt
+      And a new target, with a seed describing a game of Snake
+      And the target has the machines planner, doer and validator
+      And the "careful" line has been copied into the target
+      And a run named "snake", on the "careful" line, with that seed and target
+      When I start the "snake" run
+      Then the factory refuses
+      And the "tetris" run is running
 
   Rule: The factory runs the machines its assembly line gives it
 
@@ -162,3 +193,58 @@ Feature: Orchestration
       When the factory runs the "tetris" run
       Then it reports that the result of validator has no field "approved"
       And there are no new commits
+
+  Rule: Stopping a run leaves the factory running
+
+    Example: Stopping the "tetris" run
+      Given a plan with one task, not done
+      And the "tetris" run is running, with the doer part-way through an attempt
+      When I stop the "tetris" run
+      Then the "tetris" run is not running
+      And the factory is running
+
+  Rule: Stopping the factory stops its run too
+
+    Example: Stopping the factory while a run runs
+      Given a plan with one task, not done
+      And the "tetris" run is running, with the doer part-way through an attempt
+      When I stop the factory
+      Then the factory is not running
+      And the "tetris" run is not running
+
+  Rule: A stop interrupts the work at once and leaves the run in a sane state
+
+    Stopping is something you choose to do. Every machine that is
+    working is interrupted there and then, and the attempt is abandoned:
+    nothing is marked done that isn't, and nothing half-finished is
+    committed. What the machines had written is left in the target, for
+    whoever comes looking. A crash is not a stop; after one, the factory
+    makes a best effort to do the same, and no more is asked of it.
+
+    Example: The doer is mid-attempt
+      Given a plan with one task, not done
+      And the "tetris" run is running, with the doer part-way through an attempt, having said "started"
+      When I stop the "tetris" run
+      Then the plan shows every task as not done
+      And there are no new commits
+
+    Example: The reviewers are mid-review
+      Given the three big brains has replaced the validator on the "careful" line
+      And every reviewer is always satisfied
+      And the synthesiser is always satisfied
+      And a plan with one task, not done
+      And the "tetris" run is running, with every reviewer part-way through
+      When I stop the "tetris" run
+      Then the "tetris" run is not running
+      And the plan shows every task as not done
+      And there are no new commits
+
+  Rule: A stopped run carries on when it is started again
+
+    Example: Starting the "tetris" run again
+      Given a plan with one task, not done
+      And the "tetris" run is running, with the doer part-way through an attempt, having said "started"
+      And I have stopped the "tetris" run
+      When the factory runs the "tetris" run, given only its name
+      Then the plan shows every task as done
+      And there is one new work commit

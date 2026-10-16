@@ -36,11 +36,18 @@ course's example is the **three big brains**: three reviewers on
 different providers' models report on each attempt, and a synthesiser
 reads their reports and decides.
 
+The factory runs as a daemon. You start a run, and it keeps working
+while another command watches it: what each machine generates and what
+it spends. It runs each machine as an ACP agent, speaking the Agent
+Client Protocol to it over stdio, and keeps what the machines generate
+and spend in the run's record.
+
 A **run** is a named execution of one of the target's assembly lines on a
 seed, saying what to build, against a target, the codebase to build it in. The
 factory source is separate from the generated product. The run
-keeps its plan in `runs/<name>/plan.md` in the factory's folder, never in the target.
+keeps its plan in `runs/<name>/plan.md` in the factory's folder, never in the target. A run can be stopped, and
+started again later.
 
-New since iteration 5: each machine's folder is its harness's
-configuration, with an `AGENTS.md` and a login of its own, and the
-factory holds no instructions of its own for any machine.
+New since iteration 5a: `monitoring.feature` and `observability.feature`;
+machines run as ACP agents; the factory runs as a daemon, one run at a
+time, and runs can be stopped.
