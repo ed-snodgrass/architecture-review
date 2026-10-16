@@ -44,6 +44,7 @@ export function runTerminal({
 
   const wasRaw = input.isRaw;
   const wasPaused = input.isPaused();
+  const wasFlowing = input.readableFlowing;
   let timer;
   let started = false;
   let stopped = false;
@@ -70,7 +71,7 @@ export function runTerminal({
     lifecycle.removeListener('unhandledRejection', onError);
     lifecycle.removeListener('exit', cleanup);
     try { input.setRawMode(Boolean(wasRaw)); } catch { /* Terminal may be gone. */ }
-    if (wasPaused) input.pause();
+    if (wasPaused || wasFlowing !== true) input.pause();
     else input.resume();
     if (started && !output.destroyed) {
       try { output.write('\x1b[0m\x1b[?25h\x1b[?1049l'); } catch { /* Output may be gone. */ }

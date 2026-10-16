@@ -6,7 +6,7 @@
   "description": "A terminal Tetris game with a terminal-independent engine",
   "scripts": {
     "start": "node src/main.js",
-    "test": "node --test test/engine.test.js"
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20"
