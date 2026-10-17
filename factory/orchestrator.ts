@@ -50,7 +50,7 @@ export async function orchestrate(options: OrchestratorOptions): Promise<void> {
       : undefined;
     const consumingFanIn = state.fanInResults !== undefined
       && machine === state.fanInTarget;
-    const outcome = machineRunner.execute(machine, catalyst);
+    const outcome = await machineRunner.execute(machine, catalyst);
     if (testsBefore && testsChanged(context.target, testsBefore)) {
       options.fail('The doer changed tests');
     }

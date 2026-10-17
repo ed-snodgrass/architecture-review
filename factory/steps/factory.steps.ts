@@ -159,8 +159,8 @@ Given('the target has the machines planner, doer and validator', function () {
     const directory = join(this.target, '.assembly-lines', '.machines', machine);
     mkdirSync(directory, { recursive: true });
     const configuration = machine === 'validator'
-      ? { lens: 'single responsibility' }
-      : {};
+      ? { lens: 'single responsibility', protocol: 'legacy' }
+      : { protocol: 'legacy' };
     writeFileSync(join(directory, 'machine.json'), JSON.stringify(configuration));
     writeFileSync(join(directory, 'auth.json'), '{"test":"login"}\n');
     if (machine === 'doer') {
@@ -269,7 +269,7 @@ Given('the target has the three big brains', function () {
       machine,
     );
     mkdirSync(directory, { recursive: true });
-    writeFileSync(join(directory, 'machine.json'), '{}');
+    writeFileSync(join(directory, 'machine.json'), JSON.stringify({ protocol: 'legacy' }));
   }
 });
 
@@ -278,8 +278,8 @@ Given('the target has the machines planner, test_author, doer and validator', fu
     const directory = join(this.target, '.assembly-lines', '.machines', machine);
     mkdirSync(directory, { recursive: true });
     const configuration = machine === 'validator'
-      ? { lens: 'single responsibility' }
-      : {};
+      ? { lens: 'single responsibility', protocol: 'legacy' }
+      : { protocol: 'legacy' };
     writeFileSync(join(directory, 'machine.json'), JSON.stringify(configuration));
     writeFileSync(join(directory, 'auth.json'), '{"test":"login"}\n');
 
@@ -315,7 +315,7 @@ Given(
     for (const machine of ['reviewer_1', 'reviewer_2', 'reviewer_3', 'synthesiser']) {
       const directory = join(this.target, '.assembly-lines', '.machines', machine);
       mkdirSync(directory, { recursive: true });
-      writeFileSync(join(directory, 'machine.json'), '{}');
+      writeFileSync(join(directory, 'machine.json'), JSON.stringify({ protocol: 'legacy' }));
       writeFileSync(join(directory, 'auth.json'), '{"test":"login"}\n');
     }
     writeFileSync(
@@ -885,7 +885,23 @@ fs.appendFileSync(path.join(workspace, 'doer-calls'), 'called\n');
 fs.writeFileSync(path.join(workspace, 'doer-args'), JSON.stringify(process.argv.slice(2)));
 fs.appendFileSync(path.join(workspace, 'doer-args-log'), JSON.stringify(process.argv.slice(2)) + '\n');
 const prompt = process.argv.slice(2).join('\n');
-
+const messages = JSON.parse(process.env.FACTORY_TEST_DOER_MESSAGES || '[]');
+if (messages[0]) console.log(messages[0]);
+if (process.env.FACTORY_TEST_DOER_DELAY_MS) {
+  const marker = path.join(
+    workspace,
+    'doer-' + process.env.FACTORY_RUN_NAME + '-running',
+  );
+  fs.writeFileSync(marker, 'running\n');
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    Number(process.env.FACTORY_TEST_DOER_DELAY_MS),
+  );
+  fs.rmSync(marker);
+}
+for (const message of messages.slice(1)) console.log(message);
 const plan = fs.readFileSync(process.env.FACTORY_TEST_PLAN, 'utf8');
 
 let task;
@@ -980,6 +996,17 @@ if (process.env.FACTORY_TEST_REVIEWERS_WAIT === '1') {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
 }
+if (process.env.FACTORY_TEST_REVIEWER_DELAY_MS) {
+  const marker = path.join(workspace, name + '-running');
+  fs.writeFileSync(marker, 'running\n');
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    Number(process.env.FACTORY_TEST_REVIEWER_DELAY_MS),
+  );
+  fs.rmSync(marker);
+}
 if (name === 'reviewer_2' && process.env.FACTORY_TEST_REVIEWER_2_PROSE === '1') {
   console.log('This review has no machine-readable result.');
   process.exit(0);
@@ -995,7 +1022,7 @@ console.log(JSON.stringify(result || { satisfied: !findings, verification: [], f
     writeFileSync(harness, script, { mode: 0o755 });
     writeFileSync(
       join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json'),
-      JSON.stringify({ harness, lens: 'single responsibility' }),
+      JSON.stringify({ harness, lens: 'single responsibility', protocol: 'legacy' }),
     );
   }
 });
@@ -1033,7 +1060,7 @@ console.log(JSON.stringify({
   writeFileSync(harness, script, { mode: 0o755 });
   writeFileSync(
     join(this.target, '.assembly-lines', '.machines', 'synthesiser', 'machine.json'),
-    JSON.stringify({ harness }),
+    JSON.stringify({ harness, protocol: 'legacy' }),
   );
 });
 
@@ -1180,7 +1207,7 @@ Given('the second reviewer answers in prose, with no result', function () {
 Given('the second reviewer cannot be run', function () {
   writeFileSync(
     join(this.target, '.assembly-lines', '.machines', 'reviewer_2', 'machine.json'),
-    JSON.stringify({ harness: join(this.workspace, 'missing-reviewer') }),
+    JSON.stringify({ harness: join(this.workspace, 'missing-reviewer'), protocol: 'legacy' }),
   );
 });
 
@@ -1358,7 +1385,29 @@ Run the current task's tests first.
 `);
 });
 
-function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined, quiet = false) {
+async function waitUntil(
+  condition: () => boolean,
+  message: string,
+  timeout = 1000,
+): Promise<void> {
+  const deadline = Date.now() + timeout;
+
+  while (!condition()) {
+    if (Date.now() >= deadline) assert.fail(message);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined, quiet = false, startOnly = false) {
   const args = [join(this.workspace, 'run'), '--run', run];
   const settings = this.runs?.[run];
   if (!onlyName && settings) {
@@ -1388,6 +1437,8 @@ function runFactory(this: IWorld, run = this.runName, onlyName = false, target =
 
   if (quiet) args.push('--quiet');
 
+  if (!startOnly) args.push('--wait');
+
   this.result = spawnSync('bash', args, {
     cwd: this.workspace,
     env: this.env ?? process.env,
@@ -1414,6 +1465,344 @@ When('the factory runs the {string} run', function (run: string) {
   this.plan = join(this.workspace, 'runs', run, 'plan.md');
   this.env = { ...(this.env ?? process.env), FACTORY_TEST_PLAN: this.plan };
   runFactory.call(this, run);
+});
+
+When('I read the {string} run\'s record', function (run: string) {
+  this.recordPath = join(this.workspace, 'runs', run, 'log.md');
+  this.record = readFileSync(this.recordPath, 'utf8');
+});
+
+When('I start the {string} run', function (run: string) {
+  this.env.FACTORY_TEST_DOER_DELAY_MS = '2000';
+
+  const started = Date.now();
+  runFactory.call(this, run, false, undefined, false, true);
+  this.startDuration = Date.now() - started;
+});
+
+When('I stop the {string} run', function (run: string) {
+  const active = JSON.parse(
+    readFileSync(join(this.workspace, 'active-run.json'), 'utf8'),
+  ) as { name: string; pid: number };
+
+  assert.equal(active.name, run);
+  this.stoppedRunPid = active.pid;
+
+  this.result = spawnSync(
+    'bash',
+    [join(this.workspace, 'run'), 'stop', run],
+    {
+      cwd: this.workspace,
+      env: this.env ?? process.env,
+      encoding: 'utf8',
+    },
+  );
+});
+
+Given('I have stopped the {string} run', function (run: string) {
+  const active = JSON.parse(
+    readFileSync(join(this.workspace, 'active-run.json'), 'utf8'),
+  ) as { pid: number };
+  this.stoppedRunPid = active.pid;
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), 'stop', run], {
+    cwd: this.workspace,
+    env: this.env ?? process.env,
+    encoding: 'utf8',
+  });
+  assert.equal(this.result.status, 0, this.result.stderr);
+});
+
+When('I stop the factory', function () {
+  const activeRunFile = join(this.workspace, 'active-run.json');
+  if (existsSync(activeRunFile)) {
+    this.stoppedRunPid = (JSON.parse(readFileSync(activeRunFile, 'utf8')) as { pid: number }).pid;
+  }
+  this.stoppedFactoryPid = Number(readFileSync(join(this.workspace, 'factory.pid'), 'utf8'));
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), 'stop'], {
+    cwd: this.workspace,
+    env: this.env ?? process.env,
+    encoding: 'utf8',
+  });
+});
+
+Then('the factory is not running', async function () {
+  assert.equal(this.result.status, 0, this.result.stderr);
+  await waitUntil(
+    () => !processIsRunning(this.stoppedFactoryPid),
+    'Expected the factory to stop',
+  );
+});
+
+Then('the {string} run is not running', async function (run: string) {
+  assert.equal(this.result.status, 0, this.result.stderr);
+
+  await waitUntil(
+    () => !processIsRunning(this.stoppedRunPid),
+    `Expected the ${run} run to stop`,
+  );
+});
+
+Then(
+  'the command has returned while the {string} run is running',
+  async function (run: string) {
+    assert.equal(this.result.status, 0, this.result.stderr);
+    assert.ok(
+      this.startDuration < 1000,
+      'Expected the start command to return immediately',
+    );
+
+    await waitUntil(
+      () => existsSync(join(this.workspace, `doer-${run}-running`)),
+      `Expected the ${run} run to still be working`,
+    );
+  },
+);
+Given(
+  'the {string} run is running, with the doer part-way through an attempt',
+  async function (run: string) {
+    this.env.FACTORY_TEST_DOER_DELAY_MS = '2000';
+    runFactory.call(this, run, false, undefined, false, true);
+
+    assert.equal(this.result.status, 0, this.result.stderr);
+    await waitUntil(
+      () => existsSync(join(this.workspace, `doer-${run}-running`)),
+      `Expected the ${run} run to be working`,
+    );
+  },
+);
+
+Given('the doer says {string}, then {string}', function (first: string, second: string) {
+  this.env.FACTORY_TEST_DOER_MESSAGES = JSON.stringify([first, second]);
+});
+
+Given(
+  'the {string} run is running, with the doer part-way through an attempt, having said {string}',
+  async function (run: string, message: string) {
+    this.env.FACTORY_TEST_DOER_DELAY_MS = '2000';
+    this.env.FACTORY_TEST_DOER_MESSAGES ??= JSON.stringify([message]);
+    runFactory.call(this, run, false, undefined, false, true);
+    assert.equal(this.result.status, 0, this.result.stderr);
+    const record = join(this.workspace, 'runs', run, 'log.md');
+    await waitUntil(
+      () => existsSync(record) && readFileSync(record, 'utf8').includes(`[output] machine=doer text=${JSON.stringify(message)}`),
+      `Expected the doer to have said ${JSON.stringify(message)}`,
+      3000,
+    );
+  },
+);
+
+Given(
+  'the {string} run is running, with every reviewer part-way through',
+  async function (run: string) {
+    this.env.FACTORY_TEST_REVIEWER_DELAY_MS = '2000';
+    runFactory.call(this, run, false, undefined, false, true);
+    assert.equal(this.result.status, 0, this.result.stderr);
+    await waitUntil(
+      () => ['reviewer_1', 'reviewer_2', 'reviewer_3'].every(name =>
+        existsSync(join(this.workspace, `${name}-running`)),
+      ),
+      'Expected every reviewer to be working',
+      3000,
+    );
+  },
+);
+
+Then('the {string} run is running', function (run: string) {
+  assert.ok(
+    existsSync(join(this.workspace, `doer-${run}-running`)),
+    `Expected the ${run} run to be working`,
+  );
+});
+
+Then('the factory is running', function () {
+  const pidFile = join(this.workspace, 'factory.pid');
+  assert.ok(existsSync(pidFile), 'Expected a factory PID');
+
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  assert.doesNotThrow(() => process.kill(pid, 0));
+});
+
+Then('it shows what every machine generated', function () {
+  for (const machine of ['planner', 'doer', 'validator']) {
+    assert.match(this.record, new RegExp(`\\[${machine}\\]`));
+  }
+});
+
+Then('it shows what every machine spent', function () {
+  for (const machine of ['planner', 'doer', 'validator']) {
+    assert.match(
+      this.record,
+      new RegExp(
+        `\\[tokens\\].*machine=${machine}.*inputTokens=\\d+.*outputTokens=\\d+`,
+      ),
+    );
+  }
+});
+
+Then(
+  'the record is in the run\'s folder in the factory, not in the target',
+  function () {
+    assert.equal(
+      this.recordPath,
+      join(this.workspace, 'runs', this.runName, 'log.md'),
+    );
+    assert.equal(this.recordPath.startsWith(this.target), false);
+  },
+);
+
+Given(
+  'the reviewers run on Anthropic, Google and OpenAI models',
+  function () {
+    const providers = {
+      reviewer_1: 'anthropic',
+      reviewer_2: 'google',
+      reviewer_3: 'openai',
+    };
+
+    for (const [reviewer, provider] of Object.entries(providers)) {
+      const file = join(
+        this.target,
+        '.assembly-lines',
+        '.machines',
+        reviewer,
+        'machine.json',
+      );
+      const configuration = JSON.parse(readFileSync(file, 'utf8'));
+      writeFileSync(file, JSON.stringify({ ...configuration, provider }));
+    }
+  },
+);
+
+Then('it shows a total for each of Anthropic, Google and OpenAI', function () {
+  const output = this.result.stdout + this.result.stderr;
+
+  for (const provider of ['anthropic', 'google', 'openai']) {
+    assert.match(output, new RegExp(`\\b${provider}\\s+\\S+`, 'i'));
+  }
+});
+
+Then('it shows a total for the whole run', function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /\brun\s+\S+/i);
+});
+
+When('I watch the {string} run', function (run: string) {
+  this.result = spawnSync(
+    'bash',
+    [join(this.workspace, 'run'), 'watch', run, '--once'],
+    {
+      cwd: this.workspace,
+      env: this.env ?? process.env,
+      encoding: 'utf8',
+    },
+  );
+});
+
+Given('I am watching the {string} run', function (run: string) {
+  this.watchedRun = run;
+  this.watched = '';
+});
+
+Given('I am watching the {string} run as it runs', function (run: string) {
+  this.env.FACTORY_TEST_DOER_DELAY_MS = '800';
+  this.watchedRun = run;
+  this.watched = '';
+  runFactory.call(this, run, false, undefined, false, true);
+  assert.equal(this.result.status, 0, this.result.stderr);
+  const sample = () => {
+    const result = spawnSync('bash', [join(this.workspace, 'run'), 'watch', run, '--once'], {
+      cwd: this.workspace,
+      env: this.env ?? process.env,
+      encoding: 'utf8',
+    });
+    this.watched += result.stdout + result.stderr;
+  };
+  sample();
+  this.watchTimer = setInterval(sample, 50);
+});
+
+When('the {string} run has run to the end', async function (run: string) {
+  await waitUntil(
+    () => !existsSync(join(this.workspace, 'active-run.json')),
+    `Expected the ${run} run to finish`,
+    5000,
+  );
+  clearInterval(this.watchTimer);
+  const result = spawnSync('bash', [join(this.workspace, 'run'), 'watch', run, '--once'], {
+    cwd: this.workspace,
+    env: this.env ?? process.env,
+    encoding: 'utf8',
+  });
+  this.watched += result.stdout + result.stderr;
+});
+
+Then('what I watched showed the doer\'s tokens go up', function () {
+  const totals = [...this.watched.matchAll(/tokens\s+doer\s+(\d+)\s+in\s*\/\s*(\d+)\s+out/g)]
+    .map((match: RegExpMatchArray) => Number(match[1]) + Number(match[2]));
+  assert.ok(totals.some((value: number, index: number) => index > 0 && value > totals[index - 1]));
+});
+
+Then('what I watched showed the run\'s total go up', function () {
+  const totals = [...this.watched.matchAll(/\brun\s+(\d+)/g)]
+    .map((match: RegExpMatchArray) => Number(match[1]));
+  assert.ok(totals.some((value: number, index: number) => index > 0 && value > totals[index - 1]));
+});
+
+Then('I see {string} from the doer', function (message: string) {
+  const output = this.result.stdout + this.result.stderr;
+  assert.ok(output.split('\n').some((line: string) => line.includes('doer') && line.includes(message)));
+});
+
+Then('I do not see {string}', function (message: string) {
+  assert.doesNotMatch(this.result.stdout + this.result.stderr, new RegExp(message));
+});
+
+Then(/^it shows reviewer_1, reviewer_2 and reviewer_3 as running$/, function () {
+  const output = this.result.stdout + this.result.stderr;
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    assert.match(output, new RegExp(`running\\s+${reviewer}`));
+  }
+});
+
+Then('I see what the planner generated', function () {
+  assert.match(this.result.stdout + this.result.stderr, /planner\s+\|/);
+});
+
+Then('what I am watching shows that the {string} run was stopped', function (run: string) {
+  const result = spawnSync('bash', [join(this.workspace, 'run'), 'watch', run, '--once'], {
+    cwd: this.workspace,
+    env: this.env ?? process.env,
+    encoding: 'utf8',
+  });
+  this.watched += result.stdout + result.stderr;
+  assert.match(this.watched, new RegExp(`run ${run} stopped`));
+});
+
+Then(
+  /^I see "([^"]+)" from reviewer_1, reviewer_2 and reviewer_3$/,
+  function (message: string) {
+    const output = this.result.stdout + this.result.stderr;
+    const lines = output.split('\n');
+
+    for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+      assert.ok(
+        lines.some((line: string) =>
+          line.includes(reviewer) && line.includes(message),
+        ),
+        `Expected to see ${JSON.stringify(message)} from ${reviewer}`,
+      );
+    }
+  },
+);
+
+Then('it shows tokens in and tokens out for the doer', function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /tokens\s+doer\s+\S+\s+in\s*\/\s*\S+\s+out/i);
+});
+
+Then('it shows tokens in and tokens out for the validator', function () {
+  const output = this.result.stdout + this.result.stderr;
+  assert.match(output, /tokens\s+validator\s+\S+\s+in\s*\/\s*\S+\s+out/i);
 });
 
 When('the factory runs the {string} run quietly', function (run: string) {
@@ -2291,7 +2680,7 @@ Then('the validator has been called twice', function () {
 });
 
 When('the factory runs the {string} run with that target', function (name: string) {
-  this.result = spawnSync('bash', [join(this.workspace, 'run'), '--run', name, '--target', this.target], {
+  this.result = spawnSync('bash', [join(this.workspace, 'run'), '--run', name, '--target', this.target, '--wait'], {
     cwd: this.workspace, env: this.env ?? process.env, encoding: 'utf8',
   });
 });
@@ -2309,6 +2698,21 @@ Then('each run has its own plan', function () {
 });
 
 After(function () {
+  if (this.watchTimer) clearInterval(this.watchTimer);
+  const activeRunFile = this.workspace && join(this.workspace, 'active-run.json');
+  if (activeRunFile && existsSync(activeRunFile)) {
+    const active = JSON.parse(readFileSync(activeRunFile, 'utf8')) as { pid: number };
+    try { process.kill(-active.pid, 'SIGTERM'); } catch {}
+  }
+
+  const pidFile = this.workspace && join(this.workspace, 'factory.pid');
+
+  if (pidFile && existsSync(pidFile)) {
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {}
+  }
   if (this.workspace) {
     rmSync(this.workspace, { recursive: true, force: true });
   }
