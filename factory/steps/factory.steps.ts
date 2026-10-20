@@ -712,10 +712,12 @@ const prompt = process.argv.slice(2).join('\n');
 fs.mkdirSync(path.dirname(plan), { recursive: true });
 
 if (process.env.FACTORY_TEST_PLANNER_PROSE === '1') {
+  let completedTask;
   if (!fs.existsSync(plan)) {
     fs.writeFileSync(plan, 'First do alpha, then do beta.');
   } else if (prompt.includes('validated work has been committed')) {
     const text = fs.readFileSync(plan, 'utf8');
+    completedTask = text === 'First do alpha, then do beta.' ? 'alpha' : 'beta';
     fs.writeFileSync(
       plan,
       text === 'First do alpha, then do beta.'
@@ -725,9 +727,11 @@ if (process.env.FACTORY_TEST_PLANNER_PROSE === '1') {
   }
 
   const text = fs.readFileSync(plan, 'utf8');
-  console.log(JSON.stringify({
-    complete: text === 'Both tasks are finished.',
-  }));
+  const result = { complete: text === 'Both tasks are finished.' };
+  if (completedTask && process.env.FACTORY_TEST_OMIT_COMPLETED_TASK !== '1') {
+    result.completedTask = completedTask;
+  }
+  console.log(JSON.stringify(result));
   process.exit(0);
 }
 
@@ -736,12 +740,18 @@ if (!fs.existsSync(plan)) {
 }
 
 let text = fs.readFileSync(plan, 'utf8');
+let completedTask;
 if (prompt.includes('validated work has been committed')) {
+  completedTask = text.match(/^- \[ \] (.+)$/m)?.[1];
   text = text.replace(/^- \[ \] (.+)$/m, '- [x] $1');
   fs.writeFileSync(plan, text);
 }
 
-console.log(JSON.stringify({ complete: !text.includes('- [ ]') }));
+const result = { complete: !text.includes('- [ ]') };
+if (completedTask && process.env.FACTORY_TEST_OMIT_COMPLETED_TASK !== '1') {
+  result.completedTask = completedTask;
+}
+console.log(JSON.stringify(result));
 `;
 
   for (const name of ['pi', 'fake-agent']) {
@@ -1443,13 +1453,15 @@ function runFactory(this: IWorld, run = this.runName, onlyName = false, target =
 
   if (!startOnly) args.push('--wait');
 
+  const started = Date.now();
   this.result = spawnSync('bash', args, {
     cwd: commandDirectory,
     env: this.env ?? process.env,
     encoding: 'utf8',
-    timeout: 3000,
+    timeout: this.factoryCommandTimeout ?? 3000,
     killSignal: 'SIGKILL',
   });
+  this.factoryRunDuration = Date.now() - started;
 }
 
 When('the factory runs', function () {
@@ -2713,6 +2725,215 @@ When('the factory runs the {string} run with that target', function (name: strin
   });
 });
 
+async function startWebhookReceiver(
+  world: IWorld,
+  status: number,
+  firstResponseDelayMs = 0,
+): Promise<void> {
+  const requests = join(world.workspace, 'webhook-requests.jsonl');
+  const receiver = String.raw`
+const fs = require('node:fs');
+const http = require('node:http');
+
+let requestCount = 0;
+const server = http.createServer((request, response) => {
+  const chunks = [];
+  request.on('data', chunk => chunks.push(chunk));
+  request.on('end', () => {
+    requestCount += 1;
+    fs.appendFileSync(process.env.REQUESTS_FILE, JSON.stringify({
+      method: request.method,
+      path: request.url,
+      body: Buffer.concat(chunks).toString('utf8'),
+    }) + '\n');
+    const delay = requestCount === 1
+      ? Number(process.env.FIRST_RESPONSE_DELAY_MS)
+      : 0;
+    setTimeout(() => {
+      response.statusCode = Number(process.env.RESPONSE_STATUS);
+      response.end();
+    }, delay);
+  });
+});
+
+server.listen(0, '127.0.0.1', () => {
+  const address = server.address();
+  process.send({ port: address.port });
+});
+process.on('SIGTERM', () => server.close(() => process.exit(0)));
+`;
+  const child = spawn(process.execPath, ['-e', receiver], {
+    env: {
+      ...process.env,
+      REQUESTS_FILE: requests,
+      RESPONSE_STATUS: String(status),
+      FIRST_RESPONSE_DELAY_MS: String(firstResponseDelayMs),
+    },
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+  });
+  world.webhookProcess = child;
+  const port = await new Promise<number>((resolvePort, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Timed out starting the local webhook receiver')),
+      1000,
+    );
+    child.once('error', reject);
+    child.once('message', (message: unknown) => {
+      clearTimeout(timer);
+      if (
+        typeof message !== 'object'
+        || message === null
+        || typeof (message as { port?: unknown }).port !== 'number'
+      ) {
+        reject(new Error('Local webhook receiver did not report its port'));
+        return;
+      }
+      resolvePort((message as { port: number }).port);
+    });
+  });
+  world.webhookRequests = requests;
+  world.webhookSecret = 'fake-webhook-secret';
+  world.env = {
+    ...(world.env ?? process.env),
+    FACTORY_TASK_COMPLETE_WEBHOOK_URL:
+      `http://127.0.0.1:${port}/trigger/task-complete/with/key/${world.webhookSecret}`,
+  };
+}
+
+Given(
+  'a task-completion webhook that responds with {int}',
+  async function (status: number) {
+    await startWebhookReceiver(this, status);
+  },
+);
+
+Given('a task-completion webhook whose first response takes ten seconds', async function () {
+  await startWebhookReceiver(this, 204, 10_000);
+  this.factoryCommandTimeout = 9_000;
+});
+
+Given('no task-completion webhook is configured', function () {
+  this.env = { ...(this.env ?? process.env) };
+  delete this.env.FACTORY_TASK_COMPLETE_WEBHOOK_URL;
+});
+
+Given('an unreachable task-completion webhook', function () {
+  this.webhookSecret = 'fake-webhook-secret';
+  this.env = {
+    ...(this.env ?? process.env),
+    FACTORY_TASK_COMPLETE_WEBHOOK_URL:
+      `http://127.0.0.1:1/trigger/task-complete/with/key/${this.webhookSecret}`,
+  };
+});
+
+Given('the planner omits completedTask after completing a task', function () {
+  this.env.FACTORY_TEST_OMIT_COMPLETED_TASK = '1';
+});
+
+function webhookRequests(world: IWorld): Array<{ body: string }> {
+  if (!world.webhookRequests || !existsSync(world.webhookRequests)) return [];
+  return readFileSync(world.webhookRequests, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as { body: string });
+}
+
+function runLog(world: IWorld): string {
+  return readFileSync(
+    join(world.workspace, 'runs', world.runName, 'log.md'),
+    'utf8',
+  );
+}
+
+Then(
+  'the webhook received task-completion notifications for {string} and {string}',
+  function (first: string, second: string) {
+    const payloads = webhookRequests(this).map(request => JSON.parse(request.body));
+    assert.deepEqual(payloads.map(payload => payload.value1), [first, second]);
+  },
+);
+
+Then(
+  'each notification names the {string} run and has a UTC completion time',
+  function (run: string) {
+    const payloads = webhookRequests(this).map(request => JSON.parse(request.body));
+    assert.ok(payloads.length > 0, 'Expected at least one webhook request');
+    for (const payload of payloads) {
+      assert.equal(payload.value2, run);
+      assert.equal(new Date(payload.value3).toISOString(), payload.value3);
+      assert.match(payload.value3, /Z$/);
+    }
+  },
+);
+
+Then('the webhook received no requests', function () {
+  assert.deepEqual(webhookRequests(this), []);
+});
+
+Then('the webhook received exactly {int} requests', function (count: number) {
+  assert.equal(webhookRequests(this).length, count);
+});
+
+Then('the run log records two delivered task-completion notifications', function () {
+  assert.equal(
+    [...runLog(this).matchAll(/\[notification\] type=task-complete status=delivered\b/g)].length,
+    2,
+  );
+});
+
+Then('the run log records once that task-completion notifications are disabled', function () {
+  assert.equal(
+    [...runLog(this).matchAll(/\[notification\] type=task-complete status=disabled\b/g)].length,
+    1,
+  );
+});
+
+Then('the run log records two skipped task-completion notifications', function () {
+  assert.equal(
+    [...runLog(this).matchAll(/\[notification\] type=task-complete status=skipped reason="missing completedTask"/g)].length,
+    2,
+  );
+});
+
+Then(
+  'the run log records two failed task-completion notifications with HTTP status {int}',
+  function (status: number) {
+    assert.equal(
+      [...runLog(this).matchAll(new RegExp(
+        `\\[notification\\] type=task-complete status=failed httpStatus=${status}\\b`,
+        'g',
+      ))].length,
+      2,
+    );
+  },
+);
+
+Then('the run log records two failed task-completion notifications', function () {
+  assert.equal(
+    [...runLog(this).matchAll(/\[notification\] type=task-complete status=failed\b/g)].length,
+    2,
+  );
+});
+
+Then('the run log records a timed-out task-completion notification', function () {
+  assert.match(
+    runLog(this),
+    /\[notification\] type=task-complete status=failed reason="timeout"/,
+  );
+});
+
+Then('the run waited about five seconds for notifications', function () {
+  assert.ok(
+    this.factoryRunDuration >= 4_500 && this.factoryRunDuration < 8_000,
+    `Expected the run to wait about five seconds, but it took ${this.factoryRunDuration}ms`,
+  );
+});
+
+Then('the run log does not reveal the webhook secret', function () {
+  assert.doesNotMatch(runLog(this), new RegExp(this.webhookSecret));
+});
+
 Then('the factory refuses', function () {
   assert.notEqual(this.result.status, 0);
 });
@@ -2728,6 +2949,7 @@ Then('each run has its own plan', function () {
 After(function () {
   if (this.watchTimer) clearInterval(this.watchTimer);
   if (this.watchProcess) this.watchProcess.kill();
+  if (this.webhookProcess) this.webhookProcess.kill();
   const activeRunFile = this.workspace && join(this.workspace, 'active-run.json');
   if (activeRunFile && existsSync(activeRunFile)) {
     const active = JSON.parse(readFileSync(activeRunFile, 'utf8')) as { pid: number };
