@@ -274,6 +274,8 @@ def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
     # Keep distinct possible routes conditional, but do not repeat the same
     # direct method's educational examples for every upstream path/operation.
     seen = set()
+    rendered_observations = set()
+    direct_links = {chain.steps[0].link for chain in chains}
     for chain in chains:
         link = chain.steps[0].link
         connections = tuple(step.interface_connection for step in reversed(chain.steps)
@@ -331,6 +333,36 @@ def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
                   '    orderAccepted = true;', '}']),
             ]
         for title, explanation, example in conditions:
+            observations = [observation for observation in usage.failure_handling
+                            if observation.call in direct_links
+                            and observation.call.caller_type == link.caller_type
+                            and observation.call.caller_method == link.caller_method]
+            if title == 'Handling integration-specific failures' and observations:
+                lines.extend(['', f'**{title}**', ''])
+                for observation in observations:
+                    if observation.identity in rendered_observations:
+                        continue
+                    rendered_observations.add(observation.identity)
+                    call = observation.call
+                    operation = _markdown(call.target_type + '.' + call.target_method.name)
+                    lines.append(
+                        f'{caller} calls {operation} inside a try with a '
+                        f'{_markdown(observation.exception_type)} catch. '
+                        f'Call: {_evidence(call.invocation.source_path, call.invocation.line)}; '
+                        f'catch: {_evidence(observation.catch_source_path, observation.catch_line)}.')
+                lines.append(
+                    'This method names a client-library exception. Consider whether '
+                    'it is the right boundary for Feign-specific failures. An adapter '
+                    'could catch the exception at the integration boundary and expose '
+                    'an application-level failure, leaving application code to decide '
+                    'how to respond without depending on Feign exception types. '
+                    'The application contract determines the appropriate outcome; '
+                    'this catch alone does not establish what that outcome should be. '
+                    'This caller may already serve as that adapter. Review its '
+                    'responsibilities before adding another layer; another wrapper '
+                    'may add no value. The observed structure does not prove that '
+                    'the call throws or that the handler executes.')
+                continue
             lines.extend(['', f'**{title}**', '', explanation, '',
                           f'Illustrative only — if your code looks like this in {caller}: '
                           'ArchR did not establish this behavior. These Java statements '

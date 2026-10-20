@@ -20,13 +20,17 @@ def snapshot(path):
     findings = discover_findings(module)
     index = index_module(module)
     usage = trace_usage(module)
+    # The iteration 004 baseline covers traversal/coverage, not the additional
+    # iteration 006 catch evidence carried alongside those unchanged results.
+    traversal = asdict(usage)
+    traversal.pop('failure_handling', None)
     values = {
         'clients': [asdict(item) for item in clients],
         'declarations': [asdict(item) for item in discover_declarations(module)],
         'findings_operations_queries_destinations': [asdict(item) for item in findings],
         'resolution': asdict(resolve_index(index)),
         'interface_resolution': asdict(resolve_interface_index(index)),
-        'traversal_and_coverage': asdict(usage),
+        'traversal_and_coverage': traversal,
     }
     report = render_report(module, clients, usage, findings=findings)
     values['diagram'] = report.split('```mermaid\n', 1)[1].split('```', 1)[0]

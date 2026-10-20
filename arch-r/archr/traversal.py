@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from .failure_handling import FailureHandlingObservation, detect_failure_handling
 from .indexing import Invocation, Method, index_module
 from .interfaces import (InterfaceConnection, InterfaceDiagnostic,
                          resolve_interface_index)
@@ -44,6 +45,7 @@ class UsageTraversal:
     chains: tuple[UsageChain, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
     interface_diagnostics: tuple[InterfaceDiagnostic, ...] = ()
+    failure_handling: tuple[FailureHandlingObservation, ...] = ()
 
     @property
     def untraced_sites(self) -> tuple[UntracedSite, ...]:
@@ -177,4 +179,4 @@ def trace_usage(module: Module,
         chain.boundary or '',
         _step_key(UsageStep(chain.cycle_link)) if chain.cycle_link else ()))
     return UsageTraversal(max_depth, tuple(chains), resolution.diagnostics,
-                          interfaces.diagnostics)
+                          interfaces.diagnostics, detect_failure_handling(index, resolution))
