@@ -2,3 +2,6 @@ jobs/
 node_modules/
 dist/
 runs/
+
+active-run.json
+factory.pid
