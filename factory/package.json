@@ -5,6 +5,7 @@
   "scripts": {
     "test": "cucumber-js",
     "test:real": "cucumber-js --profile real",
+    "test:proposed": "cucumber-js --profile proposal",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
