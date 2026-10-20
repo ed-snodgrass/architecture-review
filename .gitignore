@@ -7,3 +7,5 @@
 # safety net.
 **/.machines/*/auth.json
 **/.machines/*/.credentials.json
+
+.scannerwork
