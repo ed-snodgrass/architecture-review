@@ -41,6 +41,7 @@ export function buildPrompt(
     return state.completingTask
       ? `The plan is at ${JSON.stringify(context.plan)}.
   The current task's validated work has been committed.
+  Update that task in the plan and include its text as "completedTask" in the result.
   ${answer}`
       : `The seed is at ${JSON.stringify(context.seed)}.
   The plan belongs at ${JSON.stringify(context.plan)}.

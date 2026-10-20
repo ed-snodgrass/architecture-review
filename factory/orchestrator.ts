@@ -8,6 +8,7 @@ import type {
   PromptState,
   RepairFinding,
 } from './prompts';
+import type { TaskCompletionNotifier } from './task-completion-notifier';
 
 type RunState = PromptState & {
   reviewFanIn: boolean;
@@ -23,6 +24,9 @@ type OrchestratorOptions = {
     findTestFiles: () => string[],
   ) => MachineRunner;
   appendLog: (entry: string) => void;
+  taskCompletionNotifier: TaskCompletionNotifier;
+  runName: string;
+  now?: () => Date;
   fail: (message: string) => never;
 };
 
@@ -51,6 +55,26 @@ export async function orchestrate(options: OrchestratorOptions): Promise<void> {
     const consumingFanIn = state.fanInResults !== undefined
       && machine === state.fanInTarget;
     const outcome = await machineRunner.execute(machine, catalyst);
+    if (machine === 'planner' && state.completingTask) {
+      const completedTask = outcome.completedTask;
+      if (typeof completedTask !== 'string' || !completedTask.trim()) {
+        options.appendLog(
+          '[notification] type=task-complete status=skipped reason="missing completedTask"',
+        );
+      } else {
+        try {
+          await options.taskCompletionNotifier.notify({
+            completedTask,
+            runName: options.runName,
+            completedAt: (options.now?.() ?? new Date()).toISOString(),
+          });
+        } catch {
+          options.appendLog(
+            '[notification] type=task-complete status=failed reason="internal"',
+          );
+        }
+      }
+    }
     if (testsBefore && testsChanged(context.target, testsBefore)) {
       options.fail('The doer changed tests');
     }

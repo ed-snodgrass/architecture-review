@@ -15,6 +15,7 @@ import {
   readMachineConfig,
 } from './machines';
 import { orchestrate } from './orchestrator';
+import { createTaskCompletionNotifier } from './task-completion-notifier';
 
 type Settings = { target: string; seed: string; line: string };
 type RunContext = PromptContext & {
@@ -364,10 +365,17 @@ const context: RunContext = {
 mkdirSync(target, { recursive: true });
 if (spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: target }).status !== 0) execFileSync('git', ['init'], { cwd: target });
 
+const taskCompletionNotifier = createTaskCompletionNotifier({
+  webhookUrl: process.env.FACTORY_TASK_COMPLETE_WEBHOOK_URL,
+  appendLog,
+});
+
 void orchestrate({
   context,
   maxAttempts,
   quiet,
+  runName: runName!,
+  taskCompletionNotifier,
   createMachineRunner: (state, findTestFiles) => createMachineRunner({
     target: context.target,
     lineDirectory: context.lineDirectory,
