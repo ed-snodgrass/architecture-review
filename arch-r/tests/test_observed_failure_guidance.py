@@ -34,6 +34,11 @@ class Order {{
 }}
 ''')
                 report = self.report()
+                self.assertIn('distinguishes observed source structure', report)
+                self.assertIn('ArchR observed the Feign-specific catch structure', report)
+                self.assertIn('remaining review conditions are conditional', report)
+                self.assertNotIn('that any of them occurs', report)
+                self.assertNotIn('not observed behavior', report)
                 sections = self.failure_sections(report)
                 self.assertEqual(len(sections), 1)
                 section = sections[0]
@@ -82,10 +87,37 @@ class Order {
     void place(String id) { client.get(id); }
 }
 ''')
-        section, = self.failure_sections(self.report())
+        report = self.report()
+        self.assertIn('ArchR has not established that any of them occurs', report)
+        self.assertNotIn('ArchR observed the Feign-specific catch structure', report)
+        self.assertNotIn('failure handling is absent', report)
+        section, = self.failure_sections(report)
         self.assertIn('Check whether', section)
         self.assertIn('Illustrative only', section)
         self.assertNotIn('inside a try', section)
+
+    def test_observation_intro_is_scoped_to_matching_caller(self):
+        self.put('Order', '''package sample;
+class Order {
+    Client client;
+    void place(String id) {
+        try { client.get(id); } catch (feign.FeignException e) {}
+    }
+    void other(String id) { client.get(id); }
+}
+''')
+        report = self.report()
+        self.assertEqual(report.count('ArchR observed the Feign-specific catch structure'), 1)
+        self.assertEqual(report.count('ArchR has not established that any of them occurs'), 1)
+        self.assertEqual(self.failure_sections(report),
+                         self.failure_sections(self.report(details=True)))
+
+    def test_missing_caller_keeps_scoped_no_recommendation(self):
+        report = self.report()
+        self.assertIn('No supported caller was found within the analysis boundary', report)
+        self.assertIn('no recommendation or example is provided', report)
+        self.assertNotIn('ArchR observed the Feign-specific catch structure', report)
+        self.assertEqual(self.failure_sections(report), [])
 
 
 if __name__ == '__main__':

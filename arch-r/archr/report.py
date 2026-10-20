@@ -255,7 +255,7 @@ def _usage_lines(client: FeignClient | IntegrationFinding, usage: UsageTraversal
 
 def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
                             usage: UsageTraversal | None) -> list[str]:
-    """Explain conditional reviews, without inferring behavior or adapter shape."""
+    """Distinguish source observations from conditional architectural reviews."""
     lines = ['', '### Review conditions', '']
     if usage is None:
         return [*lines, 'No usage traversal was supplied, so ArchR cannot identify '
@@ -295,9 +295,19 @@ def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
                          f'{_markdown(connection.interface_type.qualified_name)} to '
                          f'{_markdown(connection.implementation_type.qualified_name)}; '
                          'this interface connection remains possible.')
-        lines.append(f'Inspect {caller}, the observed direct caller of {target}, '
-                     'for the following conditions; ArchR has not established '
-                     'that any of them occurs.')
+        observations = [observation for observation in usage.failure_handling
+                        if observation.call in direct_links
+                        and observation.call.caller_type == link.caller_type
+                        and observation.call.caller_method == link.caller_method]
+        if observations:
+            lines.append(f'Inspect {caller}, the observed direct caller of {target}. '
+                         'ArchR observed the Feign-specific catch structure described '
+                         'below; the remaining review conditions are conditional, '
+                         'not established behavior.')
+        else:
+            lines.append(f'Inspect {caller}, the observed direct caller of {target}, '
+                         'for the following conditions; ArchR has not established '
+                         'that any of them occurs.')
         if database:
             conditions = [
                 ('Interpreting persistence results',
@@ -333,10 +343,6 @@ def _adapter_guidance_lines(client: FeignClient | IntegrationFinding,
                   '    orderAccepted = true;', '}']),
             ]
         for title, explanation, example in conditions:
-            observations = [observation for observation in usage.failure_handling
-                            if observation.call in direct_links
-                            and observation.call.caller_type == link.caller_type
-                            and observation.call.caller_method == link.caller_method]
             if title == 'Handling integration-specific failures' and observations:
                 lines.extend(['', f'**{title}**', ''])
                 for observation in observations:
@@ -746,8 +752,9 @@ def render_report(module: Module, clients: Iterable[FeignClient],
     if usage is not None and total:
         guidance_sections.extend(['', 'An adapter is code that keeps the details of communicating '
                       'with an external service separate from the module\'s own work. '
-                      'The guidance below identifies conditions to inspect, not observed '
-                      'behavior, a required change, or a proposed implementation.'])
+                      'The guidance below distinguishes observed source structure, where '
+                      'reported, from conditions to inspect. It does not establish a '
+                      'required change or prescribe an implementation.'])
     for index, (client, identity) in enumerate(zip(ordered, _feign_labels(ordered)), 1):
         heading = ['', f'### Finding {index}: {_markdown(identity)}', '']
         brief_sections.extend(_brief_card(index, identity, client, usage))
