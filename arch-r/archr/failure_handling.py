@@ -108,6 +108,48 @@ def _try_sites(tokens: list[Token]):
         yield opening, end, catches
 
 
+def _try_ranges(tokens: list[Token]) -> dict[int, int]:
+    """Full try extents, including resources, catch bodies and finally bodies.
+
+    A nested try in a handler is still nested syntax. Retaining the whole
+    statement prevents either it or its enclosing try from acquiring evidence.
+    """
+    ranges = {}
+    for i, token in enumerate(tokens):
+        if token.text != 'try' or i + 1 >= len(tokens):
+            continue
+        body = i + 1
+        if tokens[body].text == '(':
+            resources_end = _balanced_end(tokens, body)
+            if resources_end is None:
+                continue
+            body = resources_end + 1
+        if body >= len(tokens) or tokens[body].text != '{':
+            continue
+        end = _balanced_end(tokens, body)
+        if end is None:
+            continue
+        cursor = end + 1
+        while cursor < len(tokens) and tokens[cursor].text in ('catch', 'finally'):
+            body = cursor + 1
+            if tokens[cursor].text == 'catch':
+                if body >= len(tokens) or tokens[body].text != '(':
+                    break
+                header_end = _balanced_end(tokens, body)
+                if header_end is None:
+                    break
+                body = header_end + 1
+            if body >= len(tokens) or tokens[body].text != '{':
+                break
+            body_end = _balanced_end(tokens, body)
+            if body_end is None:
+                break
+            end = body_end
+            cursor = end + 1
+        ranges[i] = end
+    return ranges
+
+
 def _blocked_ranges(tokens: list[Token]) -> list[tuple[int, int]]:
     """Boundaries that cannot be crossed when associating a call and handler.
 
@@ -212,26 +254,16 @@ def detect_failure_handling(
                         and not _type_shadow(unit, 'FeignException')
                         and caller is not None and not caller.extends
                         and not caller.implements)
+        try_ranges = _try_ranges(tokens)
         for opening, end, catches in _try_sites(tokens):
             if not tokens[opening].start < offset < tokens[end].start:
                 continue
-            # Skip the whole affected outer body, not just the inner call.
-            # Also excludes a try nested inside a resource try or a handler.
-            if any(t.text == 'try' for t in tokens[opening + 1:end]):
-                continue
-            enclosing_try = False
-            for j in range(opening - 1):
-                if tokens[j].text != 'try':
-                    continue
-                body = j + 1
-                if tokens[body].text == '(':
-                    resource_end = _balanced_end(tokens, body)
-                    body = resource_end + 1 if resource_end is not None else len(tokens)
-                if body < len(tokens) and tokens[body].text == '{':
-                    outer_end = _balanced_end(tokens, body)
-                    if outer_end is not None and body < opening < outer_end:
-                        enclosing_try = True
-            if enclosing_try:
+            # Reject both sides of nested syntax, including nesting in a
+            # catch/finally body or inside a try-with-resources statement.
+            start = opening - 1
+            statement_end = try_ranges.get(start, end)
+            if any(start < other < statement_end or other < start < other_end
+                   for other, other_end in try_ranges.items()):
                 continue
             for catch, simple in catches:
                 if simple and not simple_known:

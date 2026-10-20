@@ -77,6 +77,44 @@ try { products.get(); } catch (FeignException e) {}
             with self.subTest(body=body):
                 self.assertEqual(self.detect(body)[3], ())
 
+    def test_nested_handlers_and_resource_handlers_are_silent(self):
+        inner = 'try { products.get(); } catch (FeignException e) {}'
+        for outer in (
+            'try { other.work(); } catch (Exception outer) { %s }',
+            'try { other.work(); } finally { %s }',
+            'try (Resource r = open()) {} catch (Exception outer) { %s }',
+            'try (Resource r = open()) {} finally { %s }',
+            # A direct call in the outer body is also skipped when its handler
+            # contains a nested try; do not infer exception routing for either.
+            'try { products.get(); } catch (FeignException outer) { %s }',
+            'try { products.get(); } catch (FeignException outer) {} finally { %s }',
+        ):
+            with self.subTest(outer=outer):
+                _, _, resolution, observations = self.detect(outer % inner)
+                self.assertTrue(resolution.links)
+                self.assertEqual(observations, ())
+
+    def test_unsupported_sites_do_not_hide_an_independent_plain_try(self):
+        _, _, _, observations = self.detect('''
+try { products.get(); } catch (Exception e) {}
+try (Resource r = open()) { products.get(); } catch (FeignException e) {}
+try { other.work(); } catch (FeignException e) { products.get(); }
+try { other.work(); } finally { products.get(); }
+try { products.get(); } catch (FeignException e) {}
+''')
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].call.invocation.line, 11)
+
+    def test_upstream_handler_does_not_attach_to_helper_call(self):
+        _, _, resolution, observations = self.detect('''
+try { helper(); } catch (FeignException e) {}
+    }
+    void helper() {
+        products.get();
+''')
+        self.assertTrue(any(call.target_type == 'shop.Products' for call in resolution.links))
+        self.assertEqual(observations, ())
+
     def test_uncertain_or_shadowed_types_are_silent(self):
         body = 'try { products.get(); } catch (FeignException e) {}'
         for imports, header, extra in [
