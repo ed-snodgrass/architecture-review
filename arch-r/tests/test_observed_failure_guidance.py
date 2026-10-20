@@ -80,6 +80,54 @@ class Entry {
         self.assertIn('Order.java:5', sections[0])
         self.assertIn('Order.java:6', sections[0])
 
+    def test_observations_stay_with_the_correct_integration_and_operation(self):
+        self.put('Billing', '''package sample;
+import org.springframework.cloud.openfeign.FeignClient;
+@FeignClient(name="billing") interface Billing { String charge(String id); }
+''')
+        self.put('Order', '''package sample;
+class Order {
+    Client client;
+    Billing billing;
+    void place(String id) {
+        try { client.get(id); } catch (feign.FeignException e) {}
+        billing.charge(id);
+    }
+    void pay(String id) {
+        try { billing.charge(id); } catch (feign.FeignException e) {}
+        client.get(id);
+    }
+}
+''')
+        report = self.report()
+        sections = self.failure_sections(report)
+        observed = [section for section in sections if 'inside a try' in section]
+        self.assertEqual(len(observed), 2)
+        product, = [s for s in observed if 'sample.Client.get' in s]
+        billing, = [s for s in observed if 'sample.Billing.charge' in s]
+        self.assertIn('sample.Order.place calls sample.Client.get', product)
+        self.assertIn('Order.java:6', product)
+        self.assertNotIn('sample.Order.pay calls', product)
+        self.assertNotIn('sample.Billing', product)
+        self.assertIn('sample.Order.pay calls sample.Billing.charge', billing)
+        self.assertIn('Order.java:10', billing)
+        self.assertNotIn('sample.Order.place calls', billing)
+        self.assertNotIn('sample.Client', billing)
+        self.assertEqual(len([s for s in sections if 'Illustrative only' in s]), 2)
+        guidance = report.split('## Adapter Review Guidance', 1)[1].split(
+            '## Findings with Evidence', 1)[0]
+        for title, statement, other in (
+            ('Billing', 'sample.Order.pay calls sample.Billing.charge',
+             'sample.Order.place calls sample.Client.get'),
+            ('Client', 'sample.Order.place calls sample.Client.get',
+             'sample.Order.pay calls sample.Billing.charge'),
+        ):
+            matching, = [part for part in guidance.split('### Finding ')[1:]
+                         if part.splitlines()[0].endswith(': ' + title)]
+            self.assertIn(statement, matching)
+            self.assertNotIn(other, matching)
+        self.assertEqual(sections, self.failure_sections(self.report(details=True)))
+
     def test_no_match_keeps_conditional_failure_example(self):
         self.put('Order', '''package sample;
 class Order {
