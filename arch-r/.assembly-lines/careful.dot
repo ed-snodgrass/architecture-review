@@ -4,10 +4,8 @@ digraph assembly_line {
   planner -> finish [label="complete"]
   doer -> reviewer_1
   doer -> reviewer_2
-  doer -> reviewer_3
   reviewer_1 -> synthesiser
   reviewer_2 -> synthesiser
-  reviewer_3 -> synthesiser
   synthesiser -> doer [label="not satisfied"]
   synthesiser -> planner [label="satisfied"]
 }
