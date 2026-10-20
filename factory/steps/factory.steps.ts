@@ -1,9 +1,9 @@
 import { After, Given, When, Then, IWorld } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
-import { exec, execFileSync, spawnSync } from 'node:child_process';
+import { exec, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 function repairFinding(id: string) {
   return {
@@ -944,7 +944,7 @@ fs.appendFileSync(path.join(workspace, 'validator-runs'), process.env.FACTORY_RU
 const validatorArgs = path.join(workspace, 'validator-args');
 if (!fs.existsSync(validatorArgs)) fs.writeFileSync(validatorArgs, JSON.stringify(process.argv.slice(2)));
 if (process.env.FACTORY_TEST_VALIDATOR_PREAMBLE) {
-  console.log(process.env.FACTORY_TEST_VALIDATOR_PREAMBLE);
+  process.stdout.write(process.env.FACTORY_TEST_VALIDATOR_PREAMBLE);
 }
 const callCount = fs.readFileSync(
   path.join(workspace, 'validator-calls'),
@@ -1408,11 +1408,15 @@ function processIsRunning(pid: number): boolean {
 }
 
 function runFactory(this: IWorld, run = this.runName, onlyName = false, target = undefined, quiet = false, startOnly = false) {
+  const commandDirectory = startOnly ? dirname(this.workspace) : this.workspace;
+  const commandPath = (path: string) => startOnly
+    ? relative(commandDirectory, path)
+    : path;
   const args = [join(this.workspace, 'run'), '--run', run];
   const settings = this.runs?.[run];
   if (!onlyName && settings) {
-    if (!this.omitTarget) args.push('--target', target ?? settings.target);
-    args.push('--line', settings.line, '--seed', settings.seed);
+    if (!this.omitTarget) args.push('--target', commandPath(target ?? settings.target));
+    args.push('--line', settings.line, '--seed', commandPath(settings.seed));
   }
 
   if (this.harness !== undefined) {
@@ -1440,7 +1444,7 @@ function runFactory(this: IWorld, run = this.runName, onlyName = false, target =
   if (!startOnly) args.push('--wait');
 
   this.result = spawnSync('bash', args, {
-    cwd: this.workspace,
+    cwd: commandDirectory,
     env: this.env ?? process.env,
     encoding: 'utf8',
     timeout: 3000,
@@ -1580,6 +1584,12 @@ Given(
   async function (run: string, message: string) {
     this.env.FACTORY_TEST_DOER_DELAY_MS = '2000';
     this.env.FACTORY_TEST_DOER_MESSAGES ??= JSON.stringify([message]);
+    const runDirectory = join(this.workspace, 'runs', run);
+    mkdirSync(runDirectory, { recursive: true });
+    writeFileSync(
+      join(runDirectory, 'log.md'),
+      `2000-01-01T00:00:00.000Z [run] name=${run} status=stopped\n`,
+    );
     runFactory.call(this, run, false, undefined, false, true);
     assert.equal(this.result.status, 0, this.result.stderr);
     const record = join(this.workspace, 'runs', run, 'log.md');
@@ -1698,9 +1708,27 @@ When('I watch the {string} run', function (run: string) {
   );
 });
 
-Given('I am watching the {string} run', function (run: string) {
+Given('I am watching the {string} run', async function (run: string) {
   this.watchedRun = run;
   this.watched = '';
+  this.watchProcess = spawn(
+    'bash',
+    [join(this.workspace, 'run'), 'watch', run],
+    {
+      cwd: this.workspace,
+      env: this.env ?? process.env,
+    },
+  );
+  this.watchProcess.stdout.on('data', (chunk: Buffer) => {
+    this.watched += chunk.toString();
+  });
+  this.watchProcess.stderr.on('data', (chunk: Buffer) => {
+    this.watched += chunk.toString();
+  });
+  await waitUntil(
+    () => /running\s+\S+/.test(this.watched),
+    `Expected to start watching the ${run} run`,
+  );
 });
 
 Given('I am watching the {string} run as it runs', function (run: string) {
@@ -1751,6 +1779,7 @@ Then('what I watched showed the run\'s total go up', function () {
 Then('I see {string} from the doer', function (message: string) {
   const output = this.result.stdout + this.result.stderr;
   assert.ok(output.split('\n').some((line: string) => line.includes('doer') && line.includes(message)));
+  assert.doesNotMatch(output, /run \S+ stopped/);
 });
 
 Then('I do not see {string}', function (message: string) {
@@ -1768,14 +1797,13 @@ Then('I see what the planner generated', function () {
   assert.match(this.result.stdout + this.result.stderr, /planner\s+\|/);
 });
 
-Then('what I am watching shows that the {string} run was stopped', function (run: string) {
-  const result = spawnSync('bash', [join(this.workspace, 'run'), 'watch', run, '--once'], {
-    cwd: this.workspace,
-    env: this.env ?? process.env,
-    encoding: 'utf8',
-  });
-  this.watched += result.stdout + result.stderr;
+Then('what I am watching shows that the {string} run was stopped', async function (run: string) {
+  await waitUntil(
+    () => this.watched.includes(`run ${run} stopped`),
+    `Expected the watcher to show that the ${run} run stopped`,
+  );
   assert.match(this.watched, new RegExp(`run ${run} stopped`));
+  assert.doesNotMatch(this.watched, /A run is required/);
 });
 
 Then(
@@ -2699,6 +2727,7 @@ Then('each run has its own plan', function () {
 
 After(function () {
   if (this.watchTimer) clearInterval(this.watchTimer);
+  if (this.watchProcess) this.watchProcess.kill();
   const activeRunFile = this.workspace && join(this.workspace, 'active-run.json');
   if (activeRunFile && existsSync(activeRunFile)) {
     const active = JSON.parse(readFileSync(activeRunFile, 'utf8')) as { pid: number };

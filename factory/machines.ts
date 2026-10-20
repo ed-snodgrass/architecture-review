@@ -146,23 +146,44 @@ export function createMachineRunner(options: MachineRunnerOptions): MachineRunne
             } : {}),
           }).withSession(async session => {
             let output = '';
+            let pendingLogOutput = '';
+            let idleFlush: NodeJS.Timeout | undefined;
+            let maximumFlush: NodeJS.Timeout | undefined;
+            const flushLogOutput = () => {
+              if (idleFlush) clearTimeout(idleFlush);
+              if (maximumFlush) clearTimeout(maximumFlush);
+              idleFlush = undefined;
+              maximumFlush = undefined;
+              if (!pendingLogOutput || options.quiet) return;
+              options.appendLog(`[output] machine=${name} text=${JSON.stringify(pendingLogOutput)}`);
+              pendingLogOutput = '';
+            };
+            const queueLogOutput = (text: string) => {
+              if (options.quiet) return;
+              pendingLogOutput += text;
+              if (idleFlush) clearTimeout(idleFlush);
+              idleFlush = setTimeout(flushLogOutput, 250);
+              maximumFlush ??= setTimeout(flushLogOutput, 1000);
+            };
             void session.prompt(configuredPrompt(name));
-            for (;;) {
-              const message = await session.nextUpdate();
-              if (message.kind === 'stop') {
-                return { output, response: message.response };
-              }
-              const update = message.update;
-              if (
-                update.sessionUpdate === 'agent_message_chunk'
-                && update.content.type === 'text'
-              ) {
-                output += update.content.text;
-                process.stdout.write(update.content.text);
-                if (!options.quiet) {
-                  options.appendLog(`[output] machine=${name} text=${JSON.stringify(update.content.text)}`);
+            try {
+              for (;;) {
+                const message = await session.nextUpdate();
+                if (message.kind === 'stop') {
+                  return { output, response: message.response };
+                }
+                const update = message.update;
+                if (
+                  update.sessionUpdate === 'agent_message_chunk'
+                  && update.content.type === 'text'
+                ) {
+                  output += update.content.text;
+                  process.stdout.write(update.content.text);
+                  queueLogOutput(update.content.text);
                 }
               }
+            } finally {
+              flushLogOutput();
             }
           });
         });
@@ -296,6 +317,13 @@ function parseResult(output: string): Outcome | undefined {
     try {
       return JSON.parse(text) as Outcome;
     } catch {}
+
+    for (let start = text.length - 1; start >= 0; start--) {
+      if (text[start] !== '{' && text[start] !== '[') continue;
+      try {
+        return JSON.parse(text.slice(start)) as Outcome;
+      } catch {}
+    }
   }
 }
 

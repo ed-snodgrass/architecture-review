@@ -154,12 +154,17 @@ if (args[0] === 'watch') {
   for (const [machine, isRunning] of running) {
     if (isRunning) console.log(`running    ${machine}`);
   }
-  if (/\[run\].*status=stopped/.test(entries)) console.log(`run ${name} stopped`);
 
   const activeRunFile = resolve(factory, 'active-run.json');
   const active = existsSync(activeRunFile)
     ? JSON.parse(readFileSync(activeRunFile, 'utf8')) as { name: string }
     : undefined;
+  const lastStop = entries.lastIndexOf(`[run] name=${name} status=stopped`);
+  const resumedAfterStop = lastStop >= 0
+    && /\[status\] machine=\S+ running=true/.test(entries.slice(lastStop));
+  if (lastStop >= 0 && !resumedAfterStop && active?.name !== name) {
+    console.log(`run ${name} stopped`);
+  }
   if (args.includes('--once') || active?.name !== name) process.exit(0);
 
   let previous = entries;
@@ -179,7 +184,7 @@ if (args[0] === 'watch') {
       process.exit(0);
     }
   }, 100);
-}
+} else {
 
 function printHelp(): void {
   console.log(`Factory command
@@ -259,9 +264,17 @@ if (runName && !worker && !wait) {
     daemon.unref();
   }
 
+  const workerArgs = [...args];
+  for (const pathOption of ['--target', '--seed']) {
+    const index = workerArgs.indexOf(pathOption);
+    if (index >= 0 && workerArgs[index + 1]) {
+      workerArgs[index + 1] = resolve(workerArgs[index + 1]);
+    }
+  }
+
   const child = spawn(
     'bash',
-    [resolve(factory, 'run'), '--worker', ...args],
+    [resolve(factory, 'run'), '--worker', ...workerArgs],
     {
       cwd: factory,
       env: process.env,
@@ -305,6 +318,7 @@ if (saved) {
 const target = supplied.target ?? saved?.target;
 if (!target) fail('A target is required');
 const seed = supplied.seed ?? saved?.seed;
+console.log(`seed: ${seed}`)
 if (!checking && (!seed || !existsSync(seed))) fail('No seed');
 const lineName = supplied.line ?? saved?.line;
 if (!lineName) fail('An assembly line is required');
@@ -375,3 +389,4 @@ void orchestrate({
   const active = JSON.parse(readFileSync(activeRunFile, 'utf8')) as { name: string };
   if (active.name === runName) rmSync(activeRunFile, { force: true });
 });
+}
