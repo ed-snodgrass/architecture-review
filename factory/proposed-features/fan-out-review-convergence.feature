@@ -1,3 +1,4 @@
+@fan-out-convergence
 Feature: Convergent fan-out review
 
   Parallel reviewers inspect every attempt independently. When they reject
@@ -16,6 +17,7 @@ Feature: Convergent fan-out review
     And the planner plans the tasks alpha and beta
     And the doer does the next task in the plan
     And every reviewer is always satisfied
+    And every reviewer has convergent review instructions
     And the synthesiser is always satisfied
 
   Rule: Review is bounded by the current task
@@ -31,7 +33,8 @@ Feature: Convergent fan-out review
       Given a plan with one task, not done
       And the reviewers' lens is single responsibility
       When the factory runs the "tetris" run
-      Then every reviewer was told that a blocking finding must identify a current-task requirement, test failure or regression
+      Then every reviewer was given the lens "single responsibility"
+      And every reviewer was told that a blocking finding must identify a current-task requirement, test failure or regression
       And every reviewer was told to treat later-task work and optional refactors as advisory
 
   Rule: Rejection produces an actionable repair contract
@@ -127,4 +130,3 @@ Feature: Convergent fan-out review
       Then the doer was given "FIRST-1" on the repair attempt
       And the doer was not given "FIRST-1" while doing the second task
       And there are two new work commits
-

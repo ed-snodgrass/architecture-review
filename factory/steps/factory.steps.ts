@@ -19,6 +19,41 @@ function synthesisResult(satisfied: boolean, ids: string[] = [], advisories: unk
   return { satisfied, findings: ids.map(repairFinding), advisories };
 }
 
+function reviewerInstructions(lens: string): string {
+  return `# Reviewer
+
+Review only the first unfinished task. Do not change the plan or the work.
+
+Look at the work through one lens: ${lens}. The lens guides the review but is
+not an acceptance criterion by itself.
+
+A blocking finding must identify an explicit requirement of the current task, a relevant test failure, or a regression.
+Treat later plan tasks, speculative improvements, optional improvements, and
+preference-only refactors as advisories.
+
+On an initial review, return an empty verification array. On a repair review,
+for every previous finding id, return a verification marking it resolved or
+unresolved with concrete evidence. Inspect the repaired work and relevant
+surrounding code for regressions and newly exposed violations of the current
+task.
+
+Finish with one JSON line containing "satisfied", "verification", "findings",
+and "advisories". Every blocking finding must contain non-empty "id",
+"requirement", "evidence", "repair", and "verification" strings.
+`;
+}
+
+function writeReviewerInstructions(
+  target: string,
+  reviewer: string,
+  lens: string,
+): void {
+  writeFileSync(
+    join(target, '.assembly-lines', '.machines', reviewer, 'AGENTS.md'),
+    reviewerInstructions(lens),
+  );
+}
+
 function recordedPrompts(workspace: string, name: string): string[] {
   return readFileSync(join(workspace, `${name}-args-log`), 'utf8')
     .trim()
@@ -1037,6 +1072,26 @@ console.log(JSON.stringify(result || { satisfied: !findings, verification: [], f
   }
 });
 
+Given('every reviewer has convergent review instructions', function () {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    const file = join(
+      this.target,
+      '.assembly-lines',
+      '.machines',
+      reviewer,
+      'machine.json',
+    );
+    const configuration = JSON.parse(readFileSync(file, 'utf8')) as {
+      lens?: string;
+    };
+    writeReviewerInstructions(
+      this.target,
+      reviewer,
+      configuration.lens ?? 'general review',
+    );
+  }
+});
+
 Given('the synthesiser is always satisfied', function () {
   const harness = join(this.workspace, 'agents', 'fake-synthesiser');
   const script = String.raw`#!/usr/bin/env node
@@ -1259,6 +1314,7 @@ Given("the reviewers' lens is single responsibility", function () {
     const file = join(this.target, '.assembly-lines', '.machines', reviewer, 'machine.json');
     const configuration = JSON.parse(readFileSync(file, 'utf8'));
     writeFileSync(file, JSON.stringify({ ...configuration, lens: 'single responsibility' }));
+    writeReviewerInstructions(this.target, reviewer, 'single responsibility');
   }
 });
 
@@ -2202,6 +2258,15 @@ Then('every reviewer was told to review the first unfinished task', function () 
 Then('every reviewer was given the changed product files', function () {
   for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
     assert.match(recordedPrompts(this.workspace, reviewer)[0], /changed product files[\s\S]*alpha\.txt/i);
+  }
+});
+
+Then('every reviewer was given the lens {string}', function (lens: string) {
+  for (const reviewer of ['reviewer_1', 'reviewer_2', 'reviewer_3']) {
+    assert.match(
+      recordedPrompts(this.workspace, reviewer)[0],
+      new RegExp(lens.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+    );
   }
 });
 
